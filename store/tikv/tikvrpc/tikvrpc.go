@@ -43,6 +43,7 @@ const (
 	CmdResolveLock
 	CmdGC
 	CmdDeleteRange
+	CmdPessimisticLock
 
 	CmdRawGet CmdType = 256 + iota
 	CmdRawBatchGet
@@ -71,6 +72,8 @@ func (t CmdType) String() string {
 		return "Scan"
 	case CmdPrewrite:
 		return "Prewrite"
+	case CmdPessimisticLock:
+		return "Lock"
 	case CmdCommit:
 		return "Commit"
 	case CmdCleanup:
@@ -126,6 +129,7 @@ type Request struct {
 	Get                *kvrpcpb.GetRequest
 	Scan               *kvrpcpb.ScanRequest
 	Prewrite           *kvrpcpb.PrewriteRequest
+	PessimisticLock    *kvrpcpb.PessimisticLockRequest
 	Commit             *kvrpcpb.CommitRequest
 	Cleanup            *kvrpcpb.CleanupRequest
 	BatchGet           *kvrpcpb.BatchGetRequest
@@ -202,6 +206,7 @@ type Response struct {
 	Get                *kvrpcpb.GetResponse
 	Scan               *kvrpcpb.ScanResponse
 	Prewrite           *kvrpcpb.PrewriteResponse
+	PessimisticLock    *kvrpcpb.PessimisticLockResponse
 	Commit             *kvrpcpb.CommitResponse
 	Cleanup            *kvrpcpb.CleanupResponse
 	BatchGet           *kvrpcpb.BatchGetResponse
@@ -535,6 +540,8 @@ func CallRPC(ctx context.Context, client tikvpb.TikvClient, req *Request) (*Resp
 		resp.Scan, err = client.KvScan(ctx, req.Scan)
 	case CmdPrewrite:
 		resp.Prewrite, err = client.KvPrewrite(ctx, req.Prewrite)
+	case CmdPessimisticLock:
+		resp.PessimisticLock, err = client.KvPessimisticLock(ctx, req.PessimisticLock)
 	case CmdCommit:
 		resp.Commit, err = client.KvCommit(ctx, req.Commit)
 	case CmdCleanup:

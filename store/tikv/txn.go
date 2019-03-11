@@ -45,6 +45,7 @@ type tikvTxn struct {
 	dirty     bool
 	setCnt    int64
 	vars      *kv.Variables
+	committer *twoPhaseCommitter
 
 	// For data consistency check.
 	assertions []assertionPair
@@ -231,9 +232,15 @@ func (txn *tikvTxn) Commit(ctx context.Context) error {
 	if val != nil {
 		connID = val.(uint64)
 	}
-	committer, err := newTwoPhaseCommitter(txn, connID)
-	if err != nil || committer == nil {
-		return errors.Trace(err)
+
+	var err error
+	// If the txn use pessimistic lock, committer is initialized.
+	committer := txn.committer
+	if committer == nil {
+		committer, err = newTwoPhaseCommitter(txn, connID)
+		if err != nil || committer == nil {
+			return errors.Trace(err)
+		}
 	}
 	defer func() {
 		ctxValue := ctx.Value(execdetails.CommitDetailCtxKey)
@@ -289,7 +296,28 @@ func (txn *tikvTxn) Rollback() error {
 	return nil
 }
 
-func (txn *tikvTxn) LockKeys(keys ...kv.Key) error {
+func (txn *tikvTxn) LockKeys(ctx context.Context, keys ...kv.Key) error {
+	if txn.committer == nil {
+		// connID is used for log.
+		var connID uint64
+		var err error
+		val := ctx.Value(sessionctx.ConnID)
+		if val != nil {
+			connID = val.(uint64)
+		}
+		txn.committer, err = newTwoPhaseCommitter(txn, connID)
+		if err != nil {
+			return err
+		}
+	}
+
+	bo := NewBackoffer(ctx, prewriteMaxBackoff).WithVars(txn.vars)
+	keys1 := make([][]byte, 0, len(keys))
+	for i, key := range keys {
+		keys1[i] = key
+	}
+	txn.committer.pessimisticLockKeys(bo, keys1)
+
 	metrics.TiKVTxnCmdCounter.WithLabelValues("lock_keys").Inc()
 	txn.mu.Lock()
 	for _, key := range keys {

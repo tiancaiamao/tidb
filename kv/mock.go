@@ -40,7 +40,7 @@ func (t *mockTxn) String() string {
 	return ""
 }
 
-func (t *mockTxn) LockKeys(keys ...Key) error {
+func (t *mockTxn) LockKeys(ctx context.Context, keys ...Key) error {
 	return nil
 }
 

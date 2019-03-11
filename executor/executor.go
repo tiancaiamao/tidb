@@ -672,7 +672,7 @@ func (e *SelectLockExec) Next(ctx context.Context, req *chunk.RecordBatch) error
 			for row := iter.Begin(); row != iter.End(); row = iter.Next() {
 				keys = append(keys, tablecodec.EncodeRowKeyWithHandle(id, row.GetInt64(col.Index)))
 			}
-			err = txn.LockKeys(keys...)
+			err = txn.LockKeys(ctx, keys...)
 			if err != nil {
 				return errors.Trace(err)
 			}
