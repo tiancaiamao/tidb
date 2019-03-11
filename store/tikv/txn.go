@@ -238,10 +238,17 @@ func (txn *tikvTxn) Commit(ctx context.Context) error {
 	committer := txn.committer
 	if committer == nil {
 		committer, err = newTwoPhaseCommitter(txn, connID)
-		if err != nil || committer == nil {
+		if err != nil {
 			return errors.Trace(err)
 		}
 	}
+	if err := committer.initKeysAndMutations(txn, connID); err != nil {
+		return errors.Trace(err)
+	}
+	if len(committer.keys) == 0 {
+		return nil
+	}
+
 	defer func() {
 		ctxValue := ctx.Value(execdetails.CommitDetailCtxKey)
 		if ctxValue != nil {
@@ -297,6 +304,13 @@ func (txn *tikvTxn) Rollback() error {
 }
 
 func (txn *tikvTxn) LockKeys(ctx context.Context, keys ...kv.Key) error {
+	// Do nothing if there is no keys.
+	// SHOULD IT BE MARKED AS DIRTY ?
+	if len(keys) == 0 {
+		fmt.Println("WTF ????????")
+		return nil
+	}
+
 	if txn.committer == nil {
 		// connID is used for log.
 		var connID uint64
@@ -309,13 +323,15 @@ func (txn *tikvTxn) LockKeys(ctx context.Context, keys ...kv.Key) error {
 		if err != nil {
 			return err
 		}
+		txn.committer.primaryKey = keys[0]
 	}
 
 	bo := NewBackoffer(ctx, prewriteMaxBackoff).WithVars(txn.vars)
-	keys1 := make([][]byte, 0, len(keys))
+	keys1 := make([][]byte, len(keys))
 	for i, key := range keys {
 		keys1[i] = key
 	}
+	fmt.Println("write pessimistic lock keys !!!", keys1)
 	txn.committer.pessimisticLockKeys(bo, keys1)
 
 	metrics.TiKVTxnCmdCounter.WithLabelValues("lock_keys").Inc()

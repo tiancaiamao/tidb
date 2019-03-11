@@ -581,6 +581,11 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 	// if rpcServerBusy {
 	//	return tikvrpc.GenRegionErrorResp(req, &errorpb.Error{ServerIsBusy: &errorpb.ServerIsBusy{}})
 	// }
+
+	if req.Type == tikvrpc.CmdPessimisticLock {
+		fmt.Println("MMMMMMMMMMMMMMMMMMMM")
+	}
+
 	handler, err := c.checkArgs(ctx, addr)
 	if err != nil {
 		return nil, err
@@ -611,6 +616,8 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 			return resp, nil
 		}
 		resp.Prewrite = handler.handleKvPrewrite(r)
+	case tikvrpc.CmdPessimisticLock:
+		fmt.Println("mock tikv rpc === Send pessimistic lock!!!!!!!!!!!")
 	case tikvrpc.CmdCommit:
 		// gofail: var rpcCommitResult string
 		// switch rpcCommitResult {

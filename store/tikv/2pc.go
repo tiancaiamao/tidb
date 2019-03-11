@@ -66,14 +66,15 @@ func (ca twoPhaseCommitAction) MetricsTag() string {
 
 // twoPhaseCommitter executes a two-phase commit protocol.
 type twoPhaseCommitter struct {
-	store     *tikvStore
-	txn       *tikvTxn
-	startTS   uint64
-	keys      [][]byte
-	mutations map[string]*mutationEx
-	lockTTL   uint64
-	commitTS  uint64
-	mu        struct {
+	store      *tikvStore
+	txn        *tikvTxn
+	startTS    uint64
+	keys       [][]byte
+	primaryKey []byte
+	mutations  map[string]*mutationEx
+	lockTTL    uint64
+	commitTS   uint64
+	mu         struct {
 		sync.RWMutex
 		committed       bool
 		undeterminedErr error // undeterminedErr saves the rpc error we encounter when commit primary key.
@@ -268,9 +269,6 @@ func (c *twoPhaseCommitter) initKeysAndMutations(txn *tikvTxn, connID uint64) er
 			size += len(lockKey)
 		}
 	}
-	if len(keys) == 0 {
-		return nil
-	}
 
 	for _, pair := range txn.assertions {
 		mutation, ok := mutations[string(pair.key)]
@@ -326,7 +324,10 @@ func (c *twoPhaseCommitter) initKeysAndMutations(txn *tikvTxn, connID uint64) er
 }
 
 func (c *twoPhaseCommitter) primary() []byte {
-	return c.keys[0]
+	if len(c.primaryKey) == 0 {
+		return c.keys[0]
+	}
+	return c.primaryKey
 }
 
 const bytesPerMiB = 1024 * 1024
@@ -383,7 +384,7 @@ func (c *twoPhaseCommitter) doActionOnKeys(bo *Backoffer, action twoPhaseCommitA
 	}
 
 	firstIsPrimary := bytes.Equal(keys[0], c.primary())
-	if firstIsPrimary && (action == actionCommit || action == actionCleanup) {
+	if firstIsPrimary && (action == actionCommit || action == actionCleanup || action == actionPessimisticLock) {
 		// primary should be committed/cleanup first
 		err = c.doActionOnBatches(bo, action, batches[:1])
 		if err != nil {
@@ -424,6 +425,7 @@ func (c *twoPhaseCommitter) doActionOnBatches(bo *Backoffer, action twoPhaseComm
 	case actionCleanup:
 		singleBatchActionFunc = c.cleanupSingleBatch
 	case actionPessimisticLock:
+		fmt.Println("run here???")
 		singleBatchActionFunc = c.pessimisticLockSingleBatch
 	}
 	if len(batches) == 1 {
@@ -578,8 +580,10 @@ func (c *twoPhaseCommitter) prewriteSingleBatch(bo *Backoffer, batch batchKeys) 
 func (c *twoPhaseCommitter) pessimisticLockSingleBatch(bo *Backoffer, batch batchKeys) error {
 	mutations := make([]*pb.Mutation, len(batch.keys))
 	for i, k := range batch.keys {
-		tmp := c.mutations[string(k)]
-		mutations[i] = &tmp.Mutation
+		mutations[i] = &pb.Mutation{
+			Op:  pb.Op_Lock,
+			Key: k,
+		}
 	}
 
 	req := &tikvrpc.Request{
@@ -595,6 +599,7 @@ func (c *twoPhaseCommitter) pessimisticLockSingleBatch(bo *Backoffer, batch batc
 			SyncLog:  c.syncLog,
 		},
 	}
+	fmt.Println("2pc request send pessimistic lock!!")
 	for {
 		resp, err := c.store.SendReq(bo, req, batch.region, readTimeoutShort)
 		if err != nil {
@@ -834,10 +839,6 @@ func (c *twoPhaseCommitter) executeAndWriteFinishBinlog(ctx context.Context) err
 
 // execute executes the two-phase commit protocol.
 func (c *twoPhaseCommitter) execute(ctx context.Context) error {
-	if err := c.initKeysAndMutations(c.txn, c.connID); err != nil {
-		return errors.Trace(err)
-	}
-
 	defer func() {
 		// Always clean up all written keys if the txn does not commit.
 		c.mu.RLock()
