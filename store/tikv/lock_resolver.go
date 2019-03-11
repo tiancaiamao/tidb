@@ -100,6 +100,8 @@ func (s TxnStatus) CommitTS() uint64 { return uint64(s) }
 // For locks created recently, we will do backoff and retry.
 var defaultLockTTL uint64 = 3000
 
+var pessimisticLockTTL uint64 = 60 * 1000
+
 // TODO: Consider if it's appropriate.
 var maxLockTTL uint64 = 120000
 

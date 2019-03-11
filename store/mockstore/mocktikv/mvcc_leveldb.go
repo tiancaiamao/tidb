@@ -15,6 +15,7 @@ package mocktikv
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"sync"
 
@@ -317,7 +318,10 @@ func getValue(iter *Iterator, key []byte, startTS uint64, isoLevel kvrpcpb.Isola
 	dec1 := lockDecoder{expectKey: key}
 	ok, err := dec1.Decode(iter)
 	if ok && isoLevel == kvrpcpb.IsolationLevel_SI {
-		startTS, err = dec1.lock.check(startTS, key)
+		// Pessimistic lock doesn't block read.
+		if dec1.lock.op != kvrpcpb.Op_PessimisticLock {
+			startTS, err = dec1.lock.check(startTS, key)
+		}
 	}
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -496,6 +500,30 @@ func reverse(values []mvccValue) {
 	}
 }
 
+func (mvcc *MVCCLevelDB) PessimisticLock(mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
+	mvcc.mu.Lock()
+	defer mvcc.mu.Unlock()
+
+	anyError := false
+	batch := &leveldb.Batch{}
+	errs := make([]error, 0, len(mutations))
+	for _, m := range mutations {
+		err := pessimisticLockMutation(mvcc.db, batch, m, startTS, primary, ttl)
+		errs = append(errs, err)
+		if err != nil {
+			anyError = true
+		}
+	}
+	if anyError {
+		return errs
+	}
+	if err := mvcc.db.Write(batch, nil); err != nil {
+		return nil
+	}
+
+	return errs
+}
+
 // Prewrite implements the MVCCStore interface.
 func (mvcc *MVCCLevelDB) Prewrite(mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
 	mvcc.mu.Lock()
@@ -539,7 +567,7 @@ func (mvcc *MVCCLevelDB) Prewrite(mutations []*kvrpcpb.Mutation, primary []byte,
 	return errs
 }
 
-func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mutation, startTS uint64, primary []byte, ttl uint64) error {
+func pessimisticLockMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mutation, startTS uint64, primary []byte, ttl uint64) error {
 	startKey := mvccEncode(mutation.Key, lockVer)
 	iter := newIterator(db, &util.Range{
 		Start: startKey,
@@ -558,6 +586,63 @@ func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mu
 			return dec.lock.lockErr(mutation.Key)
 		}
 		return nil
+	}
+
+	dec1 := valueDecoder{
+		expectKey: mutation.Key,
+	}
+	ok, err = dec1.Decode(iter)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	// Note that it's a write conflict here, even if the value is a rollback one.
+	if ok && dec1.value.commitTS >= startTS {
+		return ErrRetryable("write conflict")
+	}
+
+	lock := mvccLock{
+		startTS: startTS,
+		primary: primary,
+		// value:   mutation.Value,
+		op:  kvrpcpb.Op_PessimisticLock,
+		ttl: ttl,
+	}
+	writeKey := mvccEncode(mutation.Key, lockVer)
+	writeValue, err := lock.MarshalBinary()
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	fmt.Println("pessimistic lock mutation = ", mutation.Key)
+
+	batch.Put(writeKey, writeValue)
+	return nil
+}
+
+func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mutation, startTS uint64, primary []byte, ttl uint64) error {
+	startKey := mvccEncode(mutation.Key, lockVer)
+	iter := newIterator(db, &util.Range{
+		Start: startKey,
+	})
+	defer iter.Release()
+
+	dec := lockDecoder{
+		expectKey: mutation.Key,
+	}
+	ok, err := dec.Decode(iter)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if ok {
+		if dec.lock.startTS != startTS {
+			fmt.Println("lock error ....")
+			return dec.lock.lockErr(mutation.Key)
+		}
+		if dec.lock.op != kvrpcpb.Op_PessimisticLock {
+			return nil
+		}
+		// Overwrite the pessimistic lock.
+		fmt.Println("Overwrite the pessimistic lock...")
 	}
 
 	dec1 := valueDecoder{
@@ -842,14 +927,17 @@ func (mvcc *MVCCLevelDB) ResolveLock(startKey, endKey []byte, startTS, commitTS 
 		if err != nil {
 			return errors.Trace(err)
 		}
-		if ok && dec.lock.startTS == startTS {
-			if commitTS > 0 {
-				err = commitLock(batch, dec.lock, currKey, startTS, commitTS)
-			} else {
-				err = rollbackLock(batch, dec.lock, currKey, startTS)
-			}
-			if err != nil {
-				return errors.Trace(err)
+		if ok {
+			fmt.Println("resolve lock === ", dec.lock)
+			if dec.lock.startTS == startTS {
+				if commitTS > 0 {
+					err = commitLock(batch, dec.lock, currKey, startTS, commitTS)
+				} else {
+					err = rollbackLock(batch, dec.lock, currKey, startTS)
+				}
+				if err != nil {
+					return errors.Trace(err)
+				}
 			}
 		}
 

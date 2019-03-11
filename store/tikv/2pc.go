@@ -425,7 +425,6 @@ func (c *twoPhaseCommitter) doActionOnBatches(bo *Backoffer, action twoPhaseComm
 	case actionCleanup:
 		singleBatchActionFunc = c.cleanupSingleBatch
 	case actionPessimisticLock:
-		fmt.Println("run here???")
 		singleBatchActionFunc = c.pessimisticLockSingleBatch
 	}
 	if len(batches) == 1 {
@@ -543,6 +542,7 @@ func (c *twoPhaseCommitter) prewriteSingleBatch(bo *Backoffer, batch batchKeys) 
 		}
 		var locks []*Lock
 		for _, keyErr := range keyErrs {
+			fmt.Println("prewrite single batch err : ", keyErr)
 			// Check already exists error
 			if alreadyExist := keyErr.GetAlreadyExist(); alreadyExist != nil {
 				key := alreadyExist.GetKey()
@@ -592,7 +592,7 @@ func (c *twoPhaseCommitter) pessimisticLockSingleBatch(bo *Backoffer, batch batc
 			Mutations:    mutations,
 			PrimaryLock:  c.primary(),
 			StartVersion: c.startTS,
-			LockTtl:      c.lockTTL,
+			LockTtl:      pessimisticLockTTL,
 		},
 		Context: pb.Context{
 			Priority: c.priority,

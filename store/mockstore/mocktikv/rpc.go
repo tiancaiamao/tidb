@@ -258,6 +258,18 @@ func (h *rpcHandler) handleKvPrewrite(req *kvrpcpb.PrewriteRequest) *kvrpcpb.Pre
 	}
 }
 
+func (h *rpcHandler) handleKvPessimisticLock(req *kvrpcpb.PessimisticLockRequest) *kvrpcpb.PessimisticLockResponse {
+	for _, m := range req.Mutations {
+		if !h.checkKeyInRegion(m.Key) {
+			panic("KvPrewrite: key not in region")
+		}
+	}
+	errs := h.mvccStore.PessimisticLock(req.Mutations, req.PrimaryLock, req.GetStartVersion(), req.GetLockTtl())
+	return &kvrpcpb.PessimisticLockResponse{
+		Errors: convertToKeyErrors(errs),
+	}
+}
+
 func (h *rpcHandler) handleKvCommit(req *kvrpcpb.CommitRequest) *kvrpcpb.CommitResponse {
 	for _, k := range req.Keys {
 		if !h.checkKeyInRegion(k) {
@@ -617,7 +629,13 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 		}
 		resp.Prewrite = handler.handleKvPrewrite(r)
 	case tikvrpc.CmdPessimisticLock:
+		r := req.PessimisticLock
+		if err := handler.checkRequest(reqCtx, r.Size()); err != nil {
+			resp.PessimisticLock = &kvrpcpb.PessimisticLockResponse{RegionError: err}
+			return resp, nil
+		}
 		fmt.Println("mock tikv rpc === Send pessimistic lock!!!!!!!!!!!")
+		resp.PessimisticLock = handler.handleKvPessimisticLock(r)
 	case tikvrpc.CmdCommit:
 		// gofail: var rpcCommitResult string
 		// switch rpcCommitResult {
@@ -696,6 +714,7 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 	case tikvrpc.CmdRawGet:
 		r := req.RawGet
 		if err := handler.checkRequest(reqCtx, r.Size()); err != nil {
+
 			resp.RawGet = &kvrpcpb.RawGetResponse{RegionError: err}
 			return resp, nil
 		}

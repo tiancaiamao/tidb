@@ -116,6 +116,8 @@ github.com/pingcap/kvproto v0.0.0-20190310072621-d0d358079858 h1:0Gw3fegpT5K1x7b
 github.com/pingcap/kvproto v0.0.0-20190310072621-d0d358079858/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
 github.com/pingcap/kvproto v0.0.0-20190310074158-d47a7bceb4ac h1:z6IKzaCJLYkdMnSU64vnja090BMMzqapi0ZZBTuVxWk=
 github.com/pingcap/kvproto v0.0.0-20190310074158-d47a7bceb4ac/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
+github.com/pingcap/kvproto v0.0.0-20190311074214-4efaf77db939 h1:FDgcPoNCLzMqY+Dg5fxREfJ992gqg6OyG/GIGNbWpYI=
+github.com/pingcap/kvproto v0.0.0-20190311074214-4efaf77db939/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
 github.com/pingcap/log v0.0.0-20190307075452-bd41d9273596 h1:t2OQTpPJnrPDGlvA+3FwJptMTt6MEPdzK1Wt99oaefQ=
 github.com/pingcap/log v0.0.0-20190307075452-bd41d9273596/go.mod h1:WpHUKhNZ18v116SvGrmjkA9CBhYmuUTKL+p8JC9ANEw=
 github.com/pingcap/parser v0.0.0-20190305083139-b478256a6451 h1:aB0QkNXn7nCnx0FY4/w4kgsIenj9hWNJueTJ55wBDSw=
