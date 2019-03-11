@@ -613,7 +613,7 @@ func pessimisticLockMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvr
 		return errors.Trace(err)
 	}
 
-	fmt.Println("pessimistic lock mutation = ", mutation.Key)
+	fmt.Println("pessimistic lock mutation = ", mutation.Key, ttl)
 
 	batch.Put(writeKey, writeValue)
 	return nil
@@ -933,6 +933,7 @@ func (mvcc *MVCCLevelDB) ResolveLock(startKey, endKey []byte, startTS, commitTS 
 				if commitTS > 0 {
 					err = commitLock(batch, dec.lock, currKey, startTS, commitTS)
 				} else {
+					fmt.Println("lock been rollback ..", dec.lock.ttl)
 					err = rollbackLock(batch, dec.lock, currKey, startTS)
 				}
 				if err != nil {

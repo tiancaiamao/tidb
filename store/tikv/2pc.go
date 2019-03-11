@@ -599,7 +599,7 @@ func (c *twoPhaseCommitter) pessimisticLockSingleBatch(bo *Backoffer, batch batc
 			SyncLog:  c.syncLog,
 		},
 	}
-	fmt.Println("2pc request send pessimistic lock!!")
+	fmt.Println("2pc request send pessimistic lock!!", pessimisticLockTTL)
 	for {
 		resp, err := c.store.SendReq(bo, req, batch.region, readTimeoutShort)
 		if err != nil {
