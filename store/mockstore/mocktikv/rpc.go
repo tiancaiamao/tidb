@@ -593,11 +593,6 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 	// if rpcServerBusy {
 	//	return tikvrpc.GenRegionErrorResp(req, &errorpb.Error{ServerIsBusy: &errorpb.ServerIsBusy{}})
 	// }
-
-	if req.Type == tikvrpc.CmdPessimisticLock {
-		fmt.Println("MMMMMMMMMMMMMMMMMMMM")
-	}
-
 	handler, err := c.checkArgs(ctx, addr)
 	if err != nil {
 		return nil, err

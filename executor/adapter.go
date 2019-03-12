@@ -239,6 +239,12 @@ func (a *ExecStmt) Exec(ctx context.Context) (sqlexec.RecordSet, error) {
 		a.Ctx.GetSessionVars().StmtCtx.StmtType = GetStmtLabel(a.StmtNode)
 	}
 
+	// Special handle for "select for update statement"
+	// This statement may retry with new start ts.
+	if sctx.GetSessionVars().TxnCtx.ForUpdate == true {
+		return a.runSelectForUpdate(ctx, sctx, e)
+	}
+
 	// If the executor doesn't return any result to the client, we execute it without delay.
 	if e.Schema().Len() == 0 {
 		return a.handleNoDelayExecutor(ctx, sctx, e)
@@ -262,6 +268,85 @@ func (a *ExecStmt) Exec(ctx context.Context) (sqlexec.RecordSet, error) {
 		stmt:       a,
 		txnStartTS: txnStartTS,
 	}, nil
+}
+
+type chunkRowRecordSet struct {
+	rows   []chunk.Row
+	idx    int
+	fields []*ast.ResultField
+	e      Executor
+}
+
+func (c *chunkRowRecordSet) Fields() []*ast.ResultField {
+	return c.fields
+}
+
+func (c *chunkRowRecordSet) Next(ctx context.Context, req *chunk.RecordBatch) error {
+	chk := req.Chunk
+	chk.Reset()
+	for !chk.IsFull() && c.idx < len(c.rows) {
+		chk.AppendRow(c.rows[c.idx])
+		c.idx++
+	}
+	return nil
+}
+
+func (c *chunkRowRecordSet) NewRecordBatch() *chunk.RecordBatch {
+	return chunk.NewRecordBatch(c.e.newFirstChunk())
+}
+
+func (c *chunkRowRecordSet) Close() error {
+	return nil
+}
+
+func (a *ExecStmt) runSelectForUpdate(ctx context.Context, sctx sessionctx.Context, e Executor) (sqlexec.RecordSet, error) {
+	rs := &recordSet{
+		executor: e,
+		stmt:     a,
+	}
+	defer rs.Close()
+
+	var rows []chunk.Row
+	var err error
+	fields := rs.Fields()
+	req := rs.NewRecordBatch()
+	for {
+		err = rs.Next(ctx, req)
+		if err != nil {
+			// Handle 'write conflict' error.
+			break
+		}
+		if req.NumRows() == 0 {
+			return &chunkRowRecordSet{rows: rows, fields: fields, e: e}, nil
+		}
+		iter := chunk.NewIterator4Chunk(req.Chunk)
+		for r := iter.Begin(); r != iter.End(); r = iter.Next() {
+			rows = append(rows, r)
+		}
+		req.Chunk = chunk.Renew(req.Chunk, sctx.GetSessionVars().MaxChunkSize)
+	}
+
+	// Retry this "select for update" statement using a new startTS.
+	if strings.Contains(err.Error(), "write conflict") {
+		oracle := sctx.GetStore().GetOracle()
+		startTS, err := oracle.GetTimestamp(ctx)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		fmt.Println(" retry select for update use new start ts = ", startTS)
+		b := newExecutorBuilder(sctx, a.InfoSchema)
+		b.startTS = startTS
+		e := b.build(a.Plan)
+		if b.err != nil {
+			return nil, errors.Trace(b.err)
+		}
+		if err = e.Open(ctx); err != nil {
+			return nil, errors.Trace(err)
+		}
+		return a.runSelectForUpdate(ctx, sctx, e)
+	}
+
+	return nil, err
 }
 
 func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Context, e Executor) (sqlexec.RecordSet, error) {

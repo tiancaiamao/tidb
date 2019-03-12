@@ -332,7 +332,11 @@ func (txn *tikvTxn) LockKeys(ctx context.Context, keys ...kv.Key) error {
 		keys1[i] = key
 	}
 	fmt.Println("write pessimistic lock keys !!!", keys1)
-	txn.committer.pessimisticLockKeys(bo, keys1)
+	err := txn.committer.pessimisticLockKeys(bo, keys1)
+	if err != nil {
+		log.Error(err)
+		return errors.Trace(err)
+	}
 
 	metrics.TiKVTxnCmdCounter.WithLabelValues("lock_keys").Inc()
 	txn.mu.Lock()

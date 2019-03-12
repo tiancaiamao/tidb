@@ -73,7 +73,7 @@ func (t CmdType) String() string {
 	case CmdPrewrite:
 		return "Prewrite"
 	case CmdPessimisticLock:
-		return "Lock"
+		return "PessimisticLock"
 	case CmdCommit:
 		return "Commit"
 	case CmdCleanup:
@@ -477,6 +477,8 @@ func (resp *Response) GetRegionError() (*errorpb.Error, error) {
 		e = resp.Get.GetRegionError()
 	case CmdScan:
 		e = resp.Scan.GetRegionError()
+	case CmdPessimisticLock:
+		e = resp.PessimisticLock.GetRegionError()
 	case CmdPrewrite:
 		e = resp.Prewrite.GetRegionError()
 	case CmdCommit:
