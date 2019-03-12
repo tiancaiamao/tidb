@@ -631,13 +631,18 @@ func (e *ShowSlowExec) Next(ctx context.Context, req *chunk.RecordBatch) error {
 type SelectLockExec struct {
 	baseExecutor
 
-	Lock ast.SelectLockType
+	Lock    ast.SelectLockType
+	StartTS uint64
 }
 
 // Open implements the Executor Open interface.
 func (e *SelectLockExec) Open(ctx context.Context) error {
 	if err := e.baseExecutor.Open(ctx); err != nil {
 		return errors.Trace(err)
+	}
+
+	if ctx.Value("forUpdate") != nil {
+		fmt.Println("in retry select lock open ...")
 	}
 
 	txnCtx := e.ctx.GetSessionVars().TxnCtx
@@ -671,7 +676,7 @@ func (e *SelectLockExec) Next(ctx context.Context, req *chunk.RecordBatch) error
 	}
 	keys := make([]kv.Key, 0, req.NumRows())
 	iter := chunk.NewIterator4Chunk(req.Chunk)
-	fmt.Println("...select lock exec ....")
+	fmt.Println("...select lock exec .... txn ts =", txn.StartTS(), "stmt ts =", e.StartTS)
 	for id, cols := range e.Schema().TblID2Handle {
 		for _, col := range cols {
 			keys = keys[:0]
@@ -681,7 +686,7 @@ func (e *SelectLockExec) Next(ctx context.Context, req *chunk.RecordBatch) error
 			if len(keys) == 0 {
 				continue
 			}
-			err = txn.LockKeys(ctx, keys...)
+			err = txn.LockKeys(ctx, e.StartTS, keys...)
 			if err != nil {
 				return errors.Trace(err)
 			}

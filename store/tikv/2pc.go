@@ -79,10 +79,11 @@ type twoPhaseCommitter struct {
 		committed       bool
 		undeterminedErr error // undeterminedErr saves the rpc error we encounter when commit primary key.
 	}
-	priority pb.CommandPri
-	syncLog  bool
-	connID   uint64 // connID is used for log.
-	cleanWg  sync.WaitGroup
+	priority    pb.CommandPri
+	syncLog     bool
+	connID      uint64 // connID is used for log.
+	cleanWg     sync.WaitGroup
+	forUpdateTS uint64
 	// maxTxnTimeUse represents max time a Txn may use (in ms) from its startTS to commitTS.
 	// We use it to guarantee GC worker will not influence any active txn. The value
 	// should be less than GC life time.
@@ -591,7 +592,7 @@ func (c *twoPhaseCommitter) pessimisticLockSingleBatch(bo *Backoffer, batch batc
 		PessimisticLock: &pb.PessimisticLockRequest{
 			Mutations:    mutations,
 			PrimaryLock:  c.primary(),
-			StartVersion: c.startTS,
+			StartVersion: c.forUpdateTS,
 			LockTtl:      pessimisticLockTTL,
 		},
 		Context: pb.Context{
@@ -645,12 +646,12 @@ func (c *twoPhaseCommitter) pessimisticLockSingleBatch(bo *Backoffer, batch batc
 			log.Debugf("con:%d 2PC prewrite encounters lock: %v", c.connID, lock)
 			locks = append(locks, lock)
 		}
-		start := time.Now()
+		// start := time.Now()
 		ok, err := c.store.lockResolver.ResolveLocks(bo, locks)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		atomic.AddInt64(&c.detail.ResolveLockTime, int64(time.Since(start)))
+		// atomic.AddInt64(&c.detail.ResolveLockTime, int64(time.Since(start)))
 		if !ok {
 			err = bo.Backoff(BoTxnLock, errors.Errorf("2PC prewrite lockedKeys: %d", len(locks)))
 			if err != nil {

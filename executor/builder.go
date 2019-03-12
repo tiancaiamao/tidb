@@ -460,9 +460,17 @@ func (b *executorBuilder) buildSelectLock(v *plannercore.PhysicalLock) Executor 
 		// See https://dev.mysql.com/doc/refman/5.7/en/innodb-locking-reads.html
 		return src
 	}
+
+	startTS, err := b.getStartTS()
+	if err != nil {
+		b.err = errors.Trace(b.err)
+		return nil
+	}
+
 	e := &SelectLockExec{
 		baseExecutor: newBaseExecutor(b.ctx, v.Schema(), v.ExplainID(), src),
 		Lock:         v.Lock,
+		StartTS:      startTS,
 	}
 	return e
 }

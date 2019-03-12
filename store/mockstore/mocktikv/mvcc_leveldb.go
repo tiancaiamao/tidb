@@ -599,7 +599,7 @@ func pessimisticLockMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvr
 	}
 	// Note that it's a write conflict here, even if the value is a rollback one.
 	if ok && dec1.value.commitTS >= startTS {
-		fmt.Println("pessimistic lock mutation meet write conflict!!!")
+		fmt.Println("pessimistic lock mutation meet write conflict!!! start ts = ", startTS)
 		return ErrRetryable("write conflict")
 	}
 

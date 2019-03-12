@@ -340,6 +340,7 @@ func (a *ExecStmt) runSelectForUpdate(ctx context.Context, sctx sessionctx.Conte
 		if b.err != nil {
 			return nil, errors.Trace(b.err)
 		}
+		ctx := context.WithValue(ctx, "forUpdate", 666)
 		if err = e.Open(ctx); err != nil {
 			return nil, errors.Trace(err)
 		}
