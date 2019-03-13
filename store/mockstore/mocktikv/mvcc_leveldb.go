@@ -500,7 +500,7 @@ func reverse(values []mvccValue) {
 	}
 }
 
-func (mvcc *MVCCLevelDB) PessimisticLock(mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
+func (mvcc *MVCCLevelDB) PessimisticLock(mutations []*kvrpcpb.Mutation, primary []byte, startTS, forUpdateTS uint64, ttl uint64) []error {
 	mvcc.mu.Lock()
 	defer mvcc.mu.Unlock()
 
@@ -508,7 +508,7 @@ func (mvcc *MVCCLevelDB) PessimisticLock(mutations []*kvrpcpb.Mutation, primary 
 	batch := &leveldb.Batch{}
 	errs := make([]error, 0, len(mutations))
 	for _, m := range mutations {
-		err := pessimisticLockMutation(mvcc.db, batch, m, startTS, primary, ttl)
+		err := pessimisticLockMutation(mvcc.db, batch, m, startTS, forUpdateTS, primary, ttl)
 		errs = append(errs, err)
 		if err != nil {
 			anyError = true
@@ -567,7 +567,7 @@ func (mvcc *MVCCLevelDB) Prewrite(mutations []*kvrpcpb.Mutation, primary []byte,
 	return errs
 }
 
-func pessimisticLockMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mutation, startTS uint64, primary []byte, ttl uint64) error {
+func pessimisticLockMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mutation, startTS, forUpdateTS uint64, primary []byte, ttl uint64) error {
 	fmt.Println("pessimisticLockMutation, mutation = ", *mutation)
 
 	startKey := mvccEncode(mutation.Key, lockVer)
@@ -598,8 +598,8 @@ func pessimisticLockMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvr
 		return errors.Trace(err)
 	}
 	// Note that it's a write conflict here, even if the value is a rollback one.
-	if ok && dec1.value.commitTS >= startTS {
-		fmt.Println("pessimistic lock mutation meet write conflict!!! start ts = ", startTS)
+	if ok && dec1.value.commitTS >= forUpdateTS {
+		fmt.Println("pessimistic lock mutation meet write conflict!!! start ts = ", startTS, " for update ts = ", forUpdateTS)
 		return ErrRetryable("write conflict")
 	}
 

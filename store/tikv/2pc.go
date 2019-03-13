@@ -592,7 +592,8 @@ func (c *twoPhaseCommitter) pessimisticLockSingleBatch(bo *Backoffer, batch batc
 		PessimisticLock: &pb.PessimisticLockRequest{
 			Mutations:    mutations,
 			PrimaryLock:  c.primary(),
-			StartVersion: c.forUpdateTS,
+			StartVersion: c.startTS,
+			ForUpdateTs:  c.forUpdateTS,
 			LockTtl:      pessimisticLockTTL,
 		},
 		Context: pb.Context{

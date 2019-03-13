@@ -264,7 +264,7 @@ func (h *rpcHandler) handleKvPessimisticLock(req *kvrpcpb.PessimisticLockRequest
 			panic("KvPrewrite: key not in region")
 		}
 	}
-	errs := h.mvccStore.PessimisticLock(req.Mutations, req.PrimaryLock, req.GetStartVersion(), req.GetLockTtl())
+	errs := h.mvccStore.PessimisticLock(req.Mutations, req.PrimaryLock, req.GetStartVersion(), req.GetForUpdateTs(), req.GetLockTtl())
 	return &kvrpcpb.PessimisticLockResponse{
 		Errors: convertToKeyErrors(errs),
 	}
