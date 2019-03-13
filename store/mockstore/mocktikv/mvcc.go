@@ -199,7 +199,7 @@ func (l *mvccLock) lockErr(key []byte) error {
 
 func (l *mvccLock) check(ts uint64, key []byte) (uint64, error) {
 	// ignore when ts is older than lock or lock's type is Lock.
-	if l.startTS > ts || l.op == kvrpcpb.Op_Lock {
+	if l.startTS > ts || l.op == kvrpcpb.Op_Lock || l.op == kvrpcpb.Op_PessimisticLock {
 		return ts, nil
 	}
 	// for point get latest version.

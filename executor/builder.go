@@ -16,6 +16,7 @@ package executor
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -57,7 +58,8 @@ type executorBuilder struct {
 	is      infoschema.InfoSchema
 	startTS uint64 // cached when the first time getStartTS() is called
 	// err is set when there is error happened during Executor building process.
-	err error
+	err           error
+	hasSelectLock bool
 }
 
 func newExecutorBuilder(ctx sessionctx.Context, is infoschema.InfoSchema) *executorBuilder {
@@ -448,6 +450,14 @@ func (b *executorBuilder) buildDeallocate(v *plannercore.Deallocate) Executor {
 }
 
 func (b *executorBuilder) buildSelectLock(v *plannercore.PhysicalLock) Executor {
+	b.hasSelectLock = true
+	txnCtx := b.ctx.GetSessionVars().TxnCtx
+	if txnCtx.ForUpdate > txnCtx.StartTS {
+		// Build 'select for update' using the 'for update' ts.
+		fmt.Println("Build 'select for update' using the 'for update' ts:", txnCtx.ForUpdate)
+		b.startTS = txnCtx.ForUpdate
+	}
+
 	src := b.build(v.Children()[0])
 	if b.err != nil {
 		b.err = errors.Trace(b.err)

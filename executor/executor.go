@@ -646,7 +646,7 @@ func (e *SelectLockExec) Open(ctx context.Context) error {
 	}
 
 	txnCtx := e.ctx.GetSessionVars().TxnCtx
-	txnCtx.ForUpdate = true
+	txnCtx.ForUpdate = e.StartTS
 	for id := range e.Schema().TblID2Handle {
 		// This operation is only for schema validator check.
 		txnCtx.UpdateDeltaForTable(id, 0, 0, map[int64]int64{})

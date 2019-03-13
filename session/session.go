@@ -544,7 +544,7 @@ func (s *session) retry(ctx context.Context, maxCnt uint) (err error) {
 
 	connID := s.sessionVars.ConnectionID
 	s.sessionVars.RetryInfo.Retrying = true
-	if s.sessionVars.TxnCtx.ForUpdate {
+	if s.sessionVars.TxnCtx.ForUpdate > 0 {
 		err = errForUpdateCantRetry.GenWithStackByArgs(connID)
 		return err
 	}

@@ -319,9 +319,7 @@ func getValue(iter *Iterator, key []byte, startTS uint64, isoLevel kvrpcpb.Isola
 	ok, err := dec1.Decode(iter)
 	if ok && isoLevel == kvrpcpb.IsolationLevel_SI {
 		// Pessimistic lock doesn't block read.
-		if dec1.lock.op != kvrpcpb.Op_PessimisticLock {
-			startTS, err = dec1.lock.check(startTS, key)
-		}
+		startTS, err = dec1.lock.check(startTS, key)
 	}
 	if err != nil {
 		return nil, errors.Trace(err)

@@ -149,6 +149,7 @@ type ExecStmt struct {
 	// StartTime stands for the starting time when executing the statement.
 	StartTime      time.Time
 	isPreparedStmt bool
+	isForUpdate    bool
 }
 
 // OriginText returns original statement as a string.
@@ -240,8 +241,7 @@ func (a *ExecStmt) Exec(ctx context.Context) (sqlexec.RecordSet, error) {
 	}
 
 	// Special handle for "select for update statement"
-	// This statement may retry with new start ts.
-	if sctx.GetSessionVars().TxnCtx.ForUpdate == true {
+	if a.isForUpdate {
 		return a.runSelectForUpdate(ctx, sctx, e)
 	}
 
@@ -334,12 +334,13 @@ func (a *ExecStmt) runSelectForUpdate(ctx context.Context, sctx sessionctx.Conte
 			return nil, errors.Trace(err)
 		}
 		fmt.Println(" retry select for update use new start ts = ", startTS)
-		b := newExecutorBuilder(sctx, a.InfoSchema)
-		b.startTS = startTS
-		e := b.build(a.Plan)
-		if b.err != nil {
-			return nil, errors.Trace(b.err)
+		txnCtx := sctx.GetSessionVars().TxnCtx
+		txnCtx.ForUpdate = startTS
+		e, err = a.buildExecutor(sctx)
+		if err != nil {
+			return nil, errors.Trace(err)
 		}
+
 		ctx := context.WithValue(ctx, "forUpdate", 666)
 		if err = e.Open(ctx); err != nil {
 			return nil, errors.Trace(err)
@@ -428,6 +429,10 @@ func (a *ExecStmt) buildExecutor(ctx sessionctx.Context) (Executor, error) {
 	e := b.build(a.Plan)
 	if b.err != nil {
 		return nil, errors.Trace(b.err)
+	}
+
+	if b.hasSelectLock {
+		a.isForUpdate = true
 	}
 
 	// ExecuteExec is not a real Executor, we only use it to build another Executor from a prepared statement.
