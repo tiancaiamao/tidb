@@ -16,7 +16,7 @@ package executor
 import (
 	"bytes"
 	"context"
-	"fmt"
+	// "fmt"
 	"math"
 	"sort"
 	"strings"
@@ -451,12 +451,12 @@ func (b *executorBuilder) buildDeallocate(v *plannercore.Deallocate) Executor {
 
 func (b *executorBuilder) buildSelectLock(v *plannercore.PhysicalLock) Executor {
 	b.hasSelectLock = true
-	txnCtx := b.ctx.GetSessionVars().TxnCtx
-	if txnCtx.ForUpdate > txnCtx.StartTS {
-		// Build 'select for update' using the 'for update' ts.
-		fmt.Println("Build 'select for update' using the 'for update' ts:", txnCtx.ForUpdate)
-		b.startTS = txnCtx.ForUpdate
-	}
+	// txnCtx := b.ctx.GetSessionVars().TxnCtx
+	// if txnCtx.ForUpdate > txnCtx.StartTS {
+	// 	// Build 'select for update' using the 'for update' ts.
+	// 	fmt.Println("Build 'select for update' using the 'for update' ts:", txnCtx.ForUpdate)
+	// 	b.startTS = txnCtx.ForUpdate
+	// }
 
 	src := b.build(v.Children()[0])
 	if b.err != nil {
@@ -471,16 +471,16 @@ func (b *executorBuilder) buildSelectLock(v *plannercore.PhysicalLock) Executor 
 		return src
 	}
 
-	startTS, err := b.getStartTS()
-	if err != nil {
-		b.err = errors.Trace(b.err)
-		return nil
-	}
+	// startTS, err := b.getStartTS()
+	// if err != nil {
+	// 	b.err = errors.Trace(b.err)
+	// 	return nil
+	// }
 
 	e := &SelectLockExec{
 		baseExecutor: newBaseExecutor(b.ctx, v.Schema(), v.ExplainID(), src),
 		Lock:         v.Lock,
-		StartTS:      startTS,
+		// StartTS:      startTS,
 	}
 	return e
 }

@@ -318,7 +318,6 @@ func getValue(iter *Iterator, key []byte, startTS uint64, isoLevel kvrpcpb.Isola
 	dec1 := lockDecoder{expectKey: key}
 	ok, err := dec1.Decode(iter)
 	if ok && isoLevel == kvrpcpb.IsolationLevel_SI {
-		// Pessimistic lock doesn't block read.
 		startTS, err = dec1.lock.check(startTS, key)
 	}
 	if err != nil {
@@ -522,49 +521,6 @@ func (mvcc *MVCCLevelDB) PessimisticLock(mutations []*kvrpcpb.Mutation, primary 
 	return errs
 }
 
-// Prewrite implements the MVCCStore interface.
-func (mvcc *MVCCLevelDB) Prewrite(mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
-	mvcc.mu.Lock()
-	defer mvcc.mu.Unlock()
-
-	anyError := false
-	batch := &leveldb.Batch{}
-	errs := make([]error, 0, len(mutations))
-	for _, m := range mutations {
-		// If the operation is Insert, check if key is exists at first.
-		var err error
-		if m.GetOp() == kvrpcpb.Op_Insert {
-			v, err := mvcc.getValue(m.Key, startTS, kvrpcpb.IsolationLevel_SI)
-			if err != nil {
-				errs = append(errs, err)
-				anyError = true
-				continue
-			}
-			if v != nil {
-				err = &ErrKeyAlreadyExist{
-					Key: m.Key,
-				}
-				errs = append(errs, err)
-				anyError = true
-				continue
-			}
-		}
-		err = prewriteMutation(mvcc.db, batch, m, startTS, primary, ttl)
-		errs = append(errs, err)
-		if err != nil {
-			anyError = true
-		}
-	}
-	if anyError {
-		return errs
-	}
-	if err := mvcc.db.Write(batch, nil); err != nil {
-		return nil
-	}
-
-	return errs
-}
-
 func pessimisticLockMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mutation, startTS, forUpdateTS uint64, primary []byte, ttl uint64) error {
 	fmt.Println("pessimisticLockMutation, mutation = ", *mutation)
 
@@ -620,6 +576,49 @@ func pessimisticLockMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvr
 	return nil
 }
 
+// Prewrite implements the MVCCStore interface.
+func (mvcc *MVCCLevelDB) Prewrite(mutations []*kvrpcpb.Mutation, primary []byte, startTS uint64, ttl uint64) []error {
+	mvcc.mu.Lock()
+	defer mvcc.mu.Unlock()
+
+	anyError := false
+	batch := &leveldb.Batch{}
+	errs := make([]error, 0, len(mutations))
+	for _, m := range mutations {
+		// If the operation is Insert, check if key is exists at first.
+		var err error
+		if m.GetOp() == kvrpcpb.Op_Insert {
+			v, err := mvcc.getValue(m.Key, startTS, kvrpcpb.IsolationLevel_SI)
+			if err != nil {
+				errs = append(errs, err)
+				anyError = true
+				continue
+			}
+			if v != nil {
+				err = &ErrKeyAlreadyExist{
+					Key: m.Key,
+				}
+				errs = append(errs, err)
+				anyError = true
+				continue
+			}
+		}
+		err = prewriteMutation(mvcc.db, batch, m, startTS, primary, ttl)
+		errs = append(errs, err)
+		if err != nil {
+			anyError = true
+		}
+	}
+	if anyError {
+		return errs
+	}
+	if err := mvcc.db.Write(batch, nil); err != nil {
+		return nil
+	}
+
+	return errs
+}
+
 func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mutation, startTS uint64, primary []byte, ttl uint64) error {
 	startKey := mvccEncode(mutation.Key, lockVer)
 	iter := newIterator(db, &util.Range{
@@ -636,7 +635,6 @@ func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mu
 	}
 	if ok {
 		if dec.lock.startTS != startTS {
-			fmt.Println("lock error ....")
 			return dec.lock.lockErr(mutation.Key)
 		}
 		if dec.lock.op != kvrpcpb.Op_PessimisticLock {
@@ -928,18 +926,16 @@ func (mvcc *MVCCLevelDB) ResolveLock(startKey, endKey []byte, startTS, commitTS 
 		if err != nil {
 			return errors.Trace(err)
 		}
-		if ok {
-			fmt.Println("resolve lock === ", dec.lock)
-			if dec.lock.startTS == startTS {
-				if commitTS > 0 {
-					err = commitLock(batch, dec.lock, currKey, startTS, commitTS)
-				} else {
-					fmt.Println("lock been rollback ..", dec.lock.ttl)
-					err = rollbackLock(batch, dec.lock, currKey, startTS)
-				}
-				if err != nil {
-					return errors.Trace(err)
-				}
+		if ok && dec.lock.startTS == startTS {
+			// fmt.Println("resolve lock === ", dec.lock)
+			if commitTS > 0 {
+				err = commitLock(batch, dec.lock, currKey, startTS, commitTS)
+			} else {
+				// fmt.Println("lock been rollback ..", dec.lock.ttl)
+				err = rollbackLock(batch, dec.lock, currKey, startTS)
+			}
+			if err != nil {
+				return errors.Trace(err)
 			}
 		}
 

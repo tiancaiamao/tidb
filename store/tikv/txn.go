@@ -306,37 +306,39 @@ func (txn *tikvTxn) Rollback() error {
 func (txn *tikvTxn) LockKeys(ctx context.Context, startTS uint64, keys ...kv.Key) error {
 	// Do nothing if there is no keys.
 	// SHOULD IT BE MARKED AS DIRTY ?
-	if len(keys) == 0 {
-		fmt.Println("WTF ????????")
-		return nil
-	}
+	// if len(keys) == 0 {
+	// 	fmt.Println("WTF ????????")
+	// 	return nil
+	// }
 
-	if txn.committer == nil {
-		// connID is used for log.
-		var connID uint64
-		var err error
-		val := ctx.Value(sessionctx.ConnID)
-		if val != nil {
-			connID = val.(uint64)
+	if startTS > 0 {
+		if txn.committer == nil {
+			// connID is used for log.
+			var connID uint64
+			var err error
+			val := ctx.Value(sessionctx.ConnID)
+			if val != nil {
+				connID = val.(uint64)
+			}
+			txn.committer, err = newTwoPhaseCommitter(txn, connID)
+			if err != nil {
+				return err
+			}
+			txn.committer.primaryKey = keys[0]
 		}
-		txn.committer, err = newTwoPhaseCommitter(txn, connID)
+
+		bo := NewBackoffer(ctx, prewriteMaxBackoff).WithVars(txn.vars)
+		keys1 := make([][]byte, len(keys))
+		for i, key := range keys {
+			keys1[i] = key
+		}
+		fmt.Println("write pessimistic lock keys !!!", keys1)
+		txn.committer.forUpdateTS = startTS
+		err := txn.committer.pessimisticLockKeys(bo, keys1)
 		if err != nil {
-			return err
+			log.Error(err)
+			return errors.Trace(err)
 		}
-		txn.committer.primaryKey = keys[0]
-	}
-
-	bo := NewBackoffer(ctx, prewriteMaxBackoff).WithVars(txn.vars)
-	keys1 := make([][]byte, len(keys))
-	for i, key := range keys {
-		keys1[i] = key
-	}
-	fmt.Println("write pessimistic lock keys !!!", keys1)
-	txn.committer.forUpdateTS = startTS
-	err := txn.committer.pessimisticLockKeys(bo, keys1)
-	if err != nil {
-		log.Error(err)
-		return errors.Trace(err)
 	}
 
 	metrics.TiKVTxnCmdCounter.WithLabelValues("lock_keys").Inc()

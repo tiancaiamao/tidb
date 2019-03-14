@@ -15,7 +15,7 @@ package executor
 
 import (
 	"context"
-	"fmt"
+	// "fmt"
 	"math"
 	"runtime"
 	"sort"
@@ -269,9 +269,9 @@ func (e *IndexReaderExecutor) Next(ctx context.Context, req *chunk.RecordBatch) 
 
 // Open implements the Executor Open interface.
 func (e *IndexReaderExecutor) Open(ctx context.Context) error {
-	if ctx.Value("forUpdate") != nil {
-		fmt.Println("in index reader open,,,", e.dagPB.StartTs)
-	}
+	// if ctx.Value("forUpdate") != nil {
+	// 	fmt.Println("in index reader open,,,", e.dagPB.StartTs)
+	// }
 	var err error
 	if e.corColInAccess {
 		e.ranges, err = rebuildIndexRanges(e.ctx, e.plans[0].(*plannercore.PhysicalIndexScan), e.idxCols, e.colLens)

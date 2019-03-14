@@ -98,119 +98,14 @@ type mutationEx struct {
 
 // newTwoPhaseCommitter creates a twoPhaseCommitter.
 func newTwoPhaseCommitter(txn *tikvTxn, connID uint64) (*twoPhaseCommitter, error) {
-	var (
-	// keys [][]byte
-	// size    int
-	// putCnt  int
-	// delCnt  int
-	// lockCnt int
-	)
-	// mutations := make(map[string]*mutationEx)
-	// err := txn.us.WalkBuffer(func(k kv.Key, v []byte) error {
-	// 	if len(v) > 0 {
-	// 		op := pb.Op_Put
-	// 		if c := txn.us.LookupConditionPair(k); c != nil && c.ShouldNotExist() {
-	// 			op = pb.Op_Insert
-	// 		}
-	// 		mutations[string(k)] = &mutationEx{
-	// 			Mutation: pb.Mutation{
-	// 				Op:    op,
-	// 				Key:   k,
-	// 				Value: v,
-	// 			},
-	// 		}
-	// 		putCnt++
-	// 	} else {
-	// 		mutations[string(k)] = &mutationEx{
-	// 			Mutation: pb.Mutation{
-	// 				Op:  pb.Op_Del,
-	// 				Key: k,
-	// 			},
-	// 		}
-	// 		delCnt++
-	// 	}
-	// 	keys = append(keys, k)
-	// 	entrySize := len(k) + len(v)
-	// 	if entrySize > kv.TxnEntrySizeLimit {
-	// 		return kv.ErrEntryTooLarge
-	// 	}
-	// 	size += entrySize
-	// 	return nil
-	// })
-	// if err != nil {
-	// 	return nil, errors.Trace(err)
-	// }
-	// for _, lockKey := range txn.lockKeys {
-	// 	if _, ok := mutations[string(lockKey)]; !ok {
-	// 		mutations[string(lockKey)] = &mutationEx{
-	// 			Mutation: pb.Mutation{
-	// 				Op:  pb.Op_Lock,
-	// 				Key: lockKey,
-	// 			},
-	// 		}
-	// 		lockCnt++
-	// 		keys = append(keys, lockKey)
-	// 		size += len(lockKey)
-	// 	}
-	// }
-	// if len(keys) == 0 {
-	// 	return nil, nil
-	// }
-
-	// for _, pair := range txn.assertions {
-	// 	mutation, ok := mutations[string(pair.key)]
-	// 	if !ok {
-	// 		log.Error("ASSERTION FAIL!!! assertion exists but no mutation?", pair)
-	// 		continue
-	// 	}
-	// 	// Only apply the first assertion!
-	// 	if mutation.asserted {
-	// 		continue
-	// 	}
-	// 	switch pair.assertion {
-	// 	case kv.Exist:
-	// 		mutation.Assertion = pb.Assertion_Exist
-	// 	case kv.NotExist:
-	// 		mutation.Assertion = pb.Assertion_NotExist
-	// 	default:
-	// 		mutation.Assertion = pb.Assertion_None
-	// 	}
-	// 	mutation.asserted = true
-	// }
-
-	// entrylimit := atomic.LoadUint64(&kv.TxnEntryCountLimit)
-	// if len(keys) > int(entrylimit) || size > kv.TxnTotalSizeLimit {
-	// 	return nil, kv.ErrTxnTooLarge
-	// }
-	// const logEntryCount = 10000
-	// const logSize = 4 * 1024 * 1024 // 4MB
-	// if len(keys) > logEntryCount || size > logSize {
-	// 	tableID := tablecodec.DecodeTableID(keys[0])
-	// 	log.Infof("[BIG_TXN] con:%d table id:%d size:%d, keys:%d, puts:%d, dels:%d, locks:%d, startTS:%d",
-	// 		connID, tableID, size, len(keys), putCnt, delCnt, lockCnt, txn.startTS)
-	// }
-
-	// Convert from sec to ms
-	maxTxnTimeUse := uint64(config.GetGlobalConfig().TiKVClient.MaxTxnTimeUse) * 1000
-
-	// Sanity check for startTS.
-	if txn.StartTS() == math.MaxUint64 {
-		err := errors.Errorf("try to commit with invalid startTS: %d", txn.StartTS())
-		log.Errorf("con:%d 2PC commit err: %v", connID, err)
-		return nil, errors.Trace(err)
-	}
-
-	// commitDetail := &execdetails.CommitDetails{WriteSize: size, WriteKeys: len(keys)}
-	// metrics.TiKVTxnWriteKVCountHistogram.Observe(float64(commitDetail.WriteKeys))
-	// metrics.TiKVTxnWriteSizeHistogram.Observe(float64(commitDetail.WriteSize))
 	return &twoPhaseCommitter{
-		store:         txn.store,
-		txn:           txn,
-		startTS:       txn.StartTS(),
-		priority:      getTxnPriority(txn),
-		syncLog:       getTxnSyncLog(txn),
-		connID:        connID,
-		maxTxnTimeUse: maxTxnTimeUse,
+		store:    txn.store,
+		txn:      txn,
+		startTS:  txn.StartTS(),
+		priority: getTxnPriority(txn),
+		syncLog:  getTxnSyncLog(txn),
+		connID:   connID,
+		detail:   &execdetails.CommitDetails{},
 	}, nil
 }
 
@@ -305,7 +200,7 @@ func (c *twoPhaseCommitter) initKeysAndMutations(txn *tikvTxn, connID uint64) er
 	}
 
 	// Convert from sec to ms
-	// maxTxnTimeUse := uint64(config.GetGlobalConfig().TiKVClient.MaxTxnTimeUse) * 1000
+	maxTxnTimeUse := uint64(config.GetGlobalConfig().TiKVClient.MaxTxnTimeUse) * 1000
 
 	// Sanity check for startTS.
 	if txn.StartTS() == math.MaxUint64 {
@@ -314,21 +209,23 @@ func (c *twoPhaseCommitter) initKeysAndMutations(txn *tikvTxn, connID uint64) er
 		return errors.Trace(err)
 	}
 
-	commitDetail := &execdetails.CommitDetails{WriteSize: size, WriteKeys: len(keys)}
+	commitDetail := c.detail
+	commitDetail.WriteSize = size
+	commitDetail.WriteKeys = len(keys)
 	metrics.TiKVTxnWriteKVCountHistogram.Observe(float64(commitDetail.WriteKeys))
 	metrics.TiKVTxnWriteSizeHistogram.Observe(float64(commitDetail.WriteSize))
+	c.maxTxnTimeUse = maxTxnTimeUse
 	c.keys = keys
 	c.mutations = mutations
 	c.lockTTL = txnLockTTL(txn.startTime, size)
-	c.detail = commitDetail
 	return nil
 }
 
 func (c *twoPhaseCommitter) primary() []byte {
-	if len(c.primaryKey) == 0 {
-		return c.keys[0]
-	}
-	return c.primaryKey
+	// if len(c.primaryKey) == 0 {
+	return c.keys[0]
+	// }
+	// return c.primaryKey
 }
 
 const bytesPerMiB = 1024 * 1024

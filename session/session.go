@@ -547,6 +547,10 @@ func (s *session) retry(ctx context.Context, maxCnt uint) (err error) {
 	if s.sessionVars.TxnCtx.ForUpdate > 0 {
 		err = errForUpdateCantRetry.GenWithStackByArgs(connID)
 		return err
+		// err = s.InitTxnWithStartTS(s.sessionVars.TxnCtx.ForUpdate)
+		// if err != nil {
+		// 	return err
+		// }
 	}
 
 	nh := GetHistory(s)
