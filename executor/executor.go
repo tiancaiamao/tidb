@@ -672,7 +672,6 @@ func (e *SelectLockExec) Next(ctx context.Context, req *chunk.RecordBatch) error
 	}
 	keys := make([]kv.Key, 0, req.NumRows())
 	iter := chunk.NewIterator4Chunk(req.Chunk)
-	// fmt.Println("...select lock exec .... txn ts =", txn.StartTS(), "stmt ts =", e.StartTS)
 	for id, cols := range e.Schema().TblID2Handle {
 		for _, col := range cols {
 			keys = keys[:0]
@@ -683,7 +682,6 @@ func (e *SelectLockExec) Next(ctx context.Context, req *chunk.RecordBatch) error
 				continue
 			}
 			err = txn.LockKeys(ctx, e.StartTS, keys...)
-			// err = txn.LockKeys(ctx, 0, keys...)
 			if err != nil {
 				return errors.Trace(err)
 			}

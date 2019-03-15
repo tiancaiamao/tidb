@@ -629,7 +629,6 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 			resp.PessimisticLock = &kvrpcpb.PessimisticLockResponse{RegionError: err}
 			return resp, nil
 		}
-		fmt.Println("mock tikv rpc === Send pessimistic lock!!!!!!!!!!!")
 		resp.PessimisticLock = handler.handleKvPessimisticLock(r)
 	case tikvrpc.CmdCommit:
 		// gofail: var rpcCommitResult string
@@ -709,7 +708,6 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 	case tikvrpc.CmdRawGet:
 		r := req.RawGet
 		if err := handler.checkRequest(reqCtx, r.Size()); err != nil {
-
 			resp.RawGet = &kvrpcpb.RawGetResponse{RegionError: err}
 			return resp, nil
 		}

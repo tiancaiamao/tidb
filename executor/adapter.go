@@ -335,7 +335,6 @@ func (a *ExecStmt) runSelectForUpdate(ctx context.Context, sctx sessionctx.Conte
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		fmt.Println(" retry select for update use new start ts = ", startTS)
 		txnCtx := sctx.GetSessionVars().TxnCtx
 		txnCtx.ForUpdate = startTS
 		e, err = a.buildExecutor(sctx)

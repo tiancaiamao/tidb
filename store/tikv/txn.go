@@ -304,10 +304,7 @@ func (txn *tikvTxn) Rollback() error {
 }
 
 func (txn *tikvTxn) LockKeys(ctx context.Context, startTS uint64, keys ...kv.Key) error {
-	// Do nothing if there is no keys.
-	// SHOULD IT BE MARKED AS DIRTY ?
 	if len(keys) == 0 {
-		fmt.Println("WTF ????????")
 		return nil
 	}
 
@@ -332,7 +329,6 @@ func (txn *tikvTxn) LockKeys(ctx context.Context, startTS uint64, keys ...kv.Key
 		for i, key := range keys {
 			keys1[i] = key
 		}
-		fmt.Println("write pessimistic lock keys !!!", keys1)
 		txn.committer.forUpdateTS = startTS
 		err := txn.committer.pessimisticLockKeys(bo, keys1)
 		if err != nil {

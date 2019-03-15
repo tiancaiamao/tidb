@@ -16,7 +16,6 @@ package tikv
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strconv"
 	"sync"
@@ -560,9 +559,6 @@ func sendBatchRequest(
 
 // SendRequest sends a Request to server and receives Response.
 func (c *rpcClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.Request, timeout time.Duration) (*tikvrpc.Response, error) {
-	if req.Type == tikvrpc.CmdPessimisticLock {
-		fmt.Println("rpcClient ?????? so what")
-	}
 	start := time.Now()
 	reqType := req.Type.String()
 	storeID := strconv.FormatUint(req.Context.GetPeer().GetStoreId(), 10)

@@ -303,7 +303,6 @@ func SetContext(req *Request, region *metapb.Region, peer *metapb.Peer) error {
 	case CmdPrewrite:
 		req.Prewrite.Context = ctx
 	case CmdPessimisticLock:
-		fmt.Println("set context for pessimistic lock ....in SetContext")
 		req.PessimisticLock.Context = ctx
 	case CmdCommit:
 		req.Commit.Context = ctx
@@ -546,7 +545,6 @@ func CallRPC(ctx context.Context, client tikvpb.TikvClient, req *Request) (*Resp
 	case CmdPrewrite:
 		resp.Prewrite, err = client.KvPrewrite(ctx, req.Prewrite)
 	case CmdPessimisticLock:
-		fmt.Println("tikvrpc  .. Call RPC FOR pessimistic lock")
 		resp.PessimisticLock, err = client.KvPessimisticLock(ctx, req.PessimisticLock)
 	case CmdCommit:
 		resp.Commit, err = client.KvCommit(ctx, req.Commit)

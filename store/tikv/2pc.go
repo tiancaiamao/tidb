@@ -440,7 +440,6 @@ func (c *twoPhaseCommitter) prewriteSingleBatch(bo *Backoffer, batch batchKeys) 
 		}
 		var locks []*Lock
 		for _, keyErr := range keyErrs {
-			fmt.Println("prewrite single batch err : ", keyErr)
 			// Check already exists error
 			if alreadyExist := keyErr.GetAlreadyExist(); alreadyExist != nil {
 				key := alreadyExist.GetKey()
@@ -544,12 +543,10 @@ func (c *twoPhaseCommitter) pessimisticLockSingleBatch(bo *Backoffer, batch batc
 			log.Debugf("con:%d 2PC prewrite encounters lock: %v", c.connID, lock)
 			locks = append(locks, lock)
 		}
-		// start := time.Now()
 		ok, err := c.store.lockResolver.ResolveLocks(bo, locks)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		// atomic.AddInt64(&c.detail.ResolveLockTime, int64(time.Since(start)))
 		if !ok {
 			err = bo.Backoff(BoTxnLock, errors.Errorf("2PC prewrite lockedKeys: %d", len(locks)))
 			if err != nil {

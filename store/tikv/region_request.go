@@ -15,7 +15,6 @@ package tikv
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -67,10 +66,6 @@ func (s *RegionRequestSender) SendReq(bo *Backoffer, req *tikvrpc.Request, regio
 
 // SendReqCtx sends a request to tikv server and return response and RPCCtx of this RPC.
 func (s *RegionRequestSender) SendReqCtx(bo *Backoffer, req *tikvrpc.Request, regionID RegionVerID, timeout time.Duration) (*tikvrpc.Response, *RPCContext, error) {
-	if req.Type == tikvrpc.CmdPessimisticLock {
-		fmt.Println("region request sender ... SendReqCtx")
-	}
-
 	// gofail: var tikvStoreSendReqResult string
 	// switch tikvStoreSendReqResult {
 	// case "timeout":

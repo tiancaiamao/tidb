@@ -554,24 +554,20 @@ func pessimisticLockMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvr
 	}
 	// Note that it's a write conflict here, even if the value is a rollback one.
 	if ok && dec1.value.commitTS >= forUpdateTS {
-		fmt.Println("pessimistic lock mutation meet write conflict!!! start ts = ", startTS, " for update ts = ", forUpdateTS)
 		return ErrRetryable("write conflict")
 	}
 
 	lock := mvccLock{
 		startTS: startTS,
 		primary: primary,
-		// value:   mutation.Value,
-		op:  kvrpcpb.Op_PessimisticLock,
-		ttl: ttl,
+		op:      kvrpcpb.Op_PessimisticLock,
+		ttl:     ttl,
 	}
 	writeKey := mvccEncode(mutation.Key, lockVer)
 	writeValue, err := lock.MarshalBinary()
 	if err != nil {
 		return errors.Trace(err)
 	}
-
-	fmt.Println("pessimistic lock mutation = ", mutation.Key, ttl)
 
 	batch.Put(writeKey, writeValue)
 	return nil
@@ -642,7 +638,6 @@ func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mu
 			return nil
 		}
 		// Overwrite the pessimistic lock.
-		fmt.Println("Overwrite the pessimistic lock...")
 	}
 
 	dec1 := valueDecoder{
@@ -928,11 +923,9 @@ func (mvcc *MVCCLevelDB) ResolveLock(startKey, endKey []byte, startTS, commitTS 
 			return errors.Trace(err)
 		}
 		if ok && dec.lock.startTS == startTS {
-			// fmt.Println("resolve lock === ", dec.lock)
 			if commitTS > 0 {
 				err = commitLock(batch, dec.lock, currKey, startTS, commitTS)
 			} else {
-				// fmt.Println("lock been rollback ..", dec.lock.ttl)
 				err = rollbackLock(batch, dec.lock, currKey, startTS)
 			}
 			if err != nil {

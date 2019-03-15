@@ -454,7 +454,6 @@ func (b *executorBuilder) buildSelectLock(v *plannercore.PhysicalLock) Executor 
 	txnCtx := b.ctx.GetSessionVars().TxnCtx
 	if txnCtx.ForUpdate > txnCtx.StartTS {
 		// Build 'select for update' using the 'for update' ts.
-		fmt.Println("Build 'select for update' using the 'for update' ts:", txnCtx.ForUpdate, "startTS =", txnCtx.StartTS)
 		b.startTS = txnCtx.ForUpdate
 	}
 
