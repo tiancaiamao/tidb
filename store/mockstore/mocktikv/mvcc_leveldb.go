@@ -497,6 +497,7 @@ func reverse(values []mvccValue) {
 	}
 }
 
+// PessimisticLock writes the pessimistic lock.
 func (mvcc *MVCCLevelDB) PessimisticLock(mutations []*kvrpcpb.Mutation, primary []byte, startTS, forUpdateTS uint64, ttl uint64) []error {
 	mvcc.mu.Lock()
 	defer mvcc.mu.Unlock()

@@ -242,7 +242,7 @@ func (a *ExecStmt) Exec(ctx context.Context) (sqlexec.RecordSet, error) {
 
 	// Special handle for "select for update statement"
 	if a.isForUpdate {
-		// return a.runSelectForUpdate(ctx, sctx, e)
+		return a.runSelectForUpdate(ctx, sctx, e)
 	}
 
 	// If the executor doesn't return any result to the client, we execute it without delay.
@@ -304,7 +304,9 @@ func (a *ExecStmt) runSelectForUpdate(ctx context.Context, sctx sessionctx.Conte
 		executor: e,
 		stmt:     a,
 	}
-	defer rs.Close()
+	defer func() {
+		terror.Log(rs.Close())
+	}()
 
 	var rows []chunk.Row
 	var err error
@@ -341,7 +343,6 @@ func (a *ExecStmt) runSelectForUpdate(ctx context.Context, sctx sessionctx.Conte
 			return nil, errors.Trace(err)
 		}
 
-		ctx := context.WithValue(ctx, "forUpdate", 666)
 		if err = e.Open(ctx); err != nil {
 			return nil, errors.Trace(err)
 		}

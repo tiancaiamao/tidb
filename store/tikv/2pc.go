@@ -222,10 +222,10 @@ func (c *twoPhaseCommitter) initKeysAndMutations(txn *tikvTxn, connID uint64) er
 }
 
 func (c *twoPhaseCommitter) primary() []byte {
-	// if len(c.primaryKey) == 0 {
-	return c.keys[0]
-	// }
-	// return c.primaryKey
+	if len(c.primaryKey) == 0 {
+		return c.keys[0]
+	}
+	return c.primaryKey
 }
 
 const bytesPerMiB = 1024 * 1024

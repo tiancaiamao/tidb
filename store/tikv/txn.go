@@ -306,10 +306,10 @@ func (txn *tikvTxn) Rollback() error {
 func (txn *tikvTxn) LockKeys(ctx context.Context, startTS uint64, keys ...kv.Key) error {
 	// Do nothing if there is no keys.
 	// SHOULD IT BE MARKED AS DIRTY ?
-	// if len(keys) == 0 {
-	// 	fmt.Println("WTF ????????")
-	// 	return nil
-	// }
+	if len(keys) == 0 {
+		fmt.Println("WTF ????????")
+		return nil
+	}
 
 	if startTS > 0 {
 		if txn.committer == nil {

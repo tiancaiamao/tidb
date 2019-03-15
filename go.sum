@@ -110,14 +110,6 @@ github.com/pingcap/gofail v0.0.0-20181217135706-6a951c1e42c3 h1:04yuCf5NMvLU8rB2
 github.com/pingcap/gofail v0.0.0-20181217135706-6a951c1e42c3/go.mod h1:DazNTg0PTldtpsQiT9I5tVJwV1onHMKBBgXzmJUlMns=
 github.com/pingcap/goleveldb v0.0.0-20171020122428-b9ff6c35079e h1:P73/4dPCL96rGrobssy1nVy2VaVpNCuLpCbr+FEaTA8=
 github.com/pingcap/goleveldb v0.0.0-20171020122428-b9ff6c35079e/go.mod h1:O17XtbryoCJhkKGbT62+L2OlrniwqiGLSqrmdHCMzZw=
-github.com/pingcap/kvproto v0.0.0-20190215154024-7f2fc73ef562 h1:32oF1/8lVnBR2JVcCAnKPQATTOX0+ckRDFpjQk4Ngno=
-github.com/pingcap/kvproto v0.0.0-20190215154024-7f2fc73ef562/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
-github.com/pingcap/kvproto v0.0.0-20190310072621-d0d358079858 h1:0Gw3fegpT5K1x7bkKuvulWUpWSvYTiZOnOeo4lqqDt8=
-github.com/pingcap/kvproto v0.0.0-20190310072621-d0d358079858/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
-github.com/pingcap/kvproto v0.0.0-20190310074158-d47a7bceb4ac h1:z6IKzaCJLYkdMnSU64vnja090BMMzqapi0ZZBTuVxWk=
-github.com/pingcap/kvproto v0.0.0-20190310074158-d47a7bceb4ac/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
-github.com/pingcap/kvproto v0.0.0-20190311074214-4efaf77db939 h1:FDgcPoNCLzMqY+Dg5fxREfJ992gqg6OyG/GIGNbWpYI=
-github.com/pingcap/kvproto v0.0.0-20190311074214-4efaf77db939/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
 github.com/pingcap/kvproto v0.0.0-20190313025117-cac7819cb728 h1:X3+GZWt2K+j7m8L9W4NA8pdg1LyaVJuV2rOpuwN9V+U=
 github.com/pingcap/kvproto v0.0.0-20190313025117-cac7819cb728/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
 github.com/pingcap/log v0.0.0-20190307075452-bd41d9273596 h1:t2OQTpPJnrPDGlvA+3FwJptMTt6MEPdzK1Wt99oaefQ=

@@ -641,13 +641,8 @@ func (e *SelectLockExec) Open(ctx context.Context) error {
 		return errors.Trace(err)
 	}
 
-	// if ctx.Value("forUpdate") != nil {
-	// 	fmt.Println("in retry select lock open ...")
-	// }
-
 	txnCtx := e.ctx.GetSessionVars().TxnCtx
-	// txnCtx.ForUpdate = e.StartTS
-	txnCtx.ForUpdate = 666
+	txnCtx.ForUpdate = e.StartTS
 	for id := range e.Schema().TblID2Handle {
 		// This operation is only for schema validator check.
 		txnCtx.UpdateDeltaForTable(id, 0, 0, map[int64]int64{})
@@ -684,11 +679,11 @@ func (e *SelectLockExec) Next(ctx context.Context, req *chunk.RecordBatch) error
 			for row := iter.Begin(); row != iter.End(); row = iter.Next() {
 				keys = append(keys, tablecodec.EncodeRowKeyWithHandle(id, row.GetInt64(col.Index)))
 			}
-			// if len(keys) == 0 {
-			// 	continue
-			// }
-			// err = txn.LockKeys(ctx, e.StartTS, keys...)
-			err = txn.LockKeys(ctx, 0, keys...)
+			if len(keys) == 0 {
+				continue
+			}
+			err = txn.LockKeys(ctx, e.StartTS, keys...)
+			// err = txn.LockKeys(ctx, 0, keys...)
 			if err != nil {
 				return errors.Trace(err)
 			}
