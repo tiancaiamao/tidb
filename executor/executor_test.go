@@ -1134,6 +1134,12 @@ func (s *testSuite) TestUnion(c *C) {
 	tk.MustExec("analyze table t2")
 	_, err = tk.Exec("(select a,b from t1 limit 2) union all (select a,b from t2 order by a limit 1) order by t1.b")
 	c.Assert(err.Error(), Equals, "[planner:1250]Table 't1' from one of the SELECTs cannot be used in global ORDER clause")
+
+	// #issue 9900
+	tk.MustExec("drop table if exists t")
+	tk.MustExec("create table t(a int, b decimal(6, 3))")
+	tk.MustExec("insert into t values(1, 1.000)")
+	tk.MustQuery("select count(distinct a), sum(distinct a), avg(distinct a) from (select a from t union all select b from t) tmp;").Check(testkit.Rows("1 1.000 1.0000000"))
 }
 
 func (s *testSuite) TestNeighbouringProj(c *C) {
@@ -1307,6 +1313,12 @@ func (s *testSuite) TestIndexScan(c *C) {
 	tk.MustExec("create table t(a varchar(50) primary key, b int, c int, index idx(b))")
 	tk.MustExec("insert into t values('aa', 1, 1)")
 	tk.MustQuery("select * from t use index(idx) where a > 'a'").Check(testkit.Rows("aa 1 1"))
+
+	// fix issue9636
+	tk.MustExec("drop table if exists t")
+	tk.MustExec("CREATE TABLE `t` (a int, KEY (a))")
+	result = tk.MustQuery(`SELECT * FROM (SELECT * FROM (SELECT a as d FROM t WHERE a IN ('100')) AS x WHERE x.d < "123" ) tmp_count"`)
+	result.Check(testkit.Rows())
 }
 
 func (s *testSuite) TestIndexReverseOrder(c *C) {
@@ -2001,9 +2013,22 @@ func (s *testSuite) TestColumnName(c *C) {
 	c.Check(err, IsNil)
 	fields = rs.Fields()
 	for i := 0; i < 5; i++ {
-		c.Check(fields[0].Column.Name.L, Equals, "c")
-		c.Check(fields[0].ColumnAsName.L, Equals, "c")
+		c.Check(fields[i].Column.Name.L, Equals, "c")
+		c.Check(fields[i].ColumnAsName.L, Equals, "c")
 	}
+	rs.Close()
+
+	// Test issue https://github.com/pingcap/tidb/issues/9639 .
+	// Both window function and expression appear in final result field.
+	tk.MustExec("set @@tidb_enable_window_function = 1")
+	rs, err = tk.Exec("select 1+1, row_number() over() num from t")
+	c.Check(err, IsNil)
+	fields = rs.Fields()
+	c.Assert(fields[0].Column.Name.L, Equals, "1+1")
+	c.Assert(fields[0].ColumnAsName.L, Equals, "1+1")
+	c.Assert(fields[1].Column.Name.L, Equals, "num")
+	c.Assert(fields[1].ColumnAsName.L, Equals, "num")
+	tk.MustExec("set @@tidb_enable_window_function = 0")
 	rs.Close()
 }
 
@@ -3346,7 +3371,7 @@ func (s *testSuite3) TestCurrentTimestampValueSelection(c *C) {
 	tk.MustQuery("select id from t where t0 = ?", t0).Check(testkit.Rows("1"))
 	tk.MustQuery("select id from t where t1 = ?", t1).Check(testkit.Rows("1"))
 	tk.MustQuery("select id from t where t2 = ?", t2).Check(testkit.Rows("1"))
-	time.Sleep(time.Second / 2)
+	time.Sleep(time.Second)
 	tk.MustExec("update t set t0 = now() where id = 1")
 	rs = tk.MustQuery("select t2 from t where id = 1")
 	newT2 := rs.Rows()[0][0].(string)

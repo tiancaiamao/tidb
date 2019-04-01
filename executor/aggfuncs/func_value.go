@@ -174,6 +174,7 @@ type value4JSON struct {
 func (v *value4JSON) evaluateRow(ctx sessionctx.Context, expr expression.Expression, row chunk.Row) error {
 	var err error
 	v.val, v.isNull, err = expr.EvalJSON(ctx, row)
+	v.val = v.val.Copy() // deep copy to avoid content change.
 	return err
 }
 
@@ -294,6 +295,53 @@ func (v *lastValue) UpdatePartialResult(sctx sessionctx.Context, rowsInGroup []c
 func (v *lastValue) AppendFinalResult2Chunk(sctx sessionctx.Context, pr PartialResult, chk *chunk.Chunk) error {
 	p := (*partialResult4LastValue)(pr)
 	if !p.gotLastValue {
+		chk.AppendNull(v.ordinal)
+	} else {
+		p.evaluator.appendResult(chk, v.ordinal)
+	}
+	return nil
+}
+
+type nthValue struct {
+	baseAggFunc
+
+	tp  *types.FieldType
+	nth uint64
+}
+
+type partialResult4NthValue struct {
+	seenRows  uint64
+	evaluator valueEvaluator
+}
+
+func (v *nthValue) AllocPartialResult() PartialResult {
+	return PartialResult(&partialResult4NthValue{evaluator: buildValueEvaluator(v.tp)})
+}
+
+func (v *nthValue) ResetPartialResult(pr PartialResult) {
+	p := (*partialResult4NthValue)(pr)
+	p.seenRows = 0
+}
+
+func (v *nthValue) UpdatePartialResult(sctx sessionctx.Context, rowsInGroup []chunk.Row, pr PartialResult) error {
+	if v.nth == 0 {
+		return nil
+	}
+	p := (*partialResult4NthValue)(pr)
+	numRows := uint64(len(rowsInGroup))
+	if v.nth > p.seenRows && v.nth-p.seenRows <= numRows {
+		err := p.evaluator.evaluateRow(sctx, v.args[0], rowsInGroup[v.nth-p.seenRows-1])
+		if err != nil {
+			return err
+		}
+	}
+	p.seenRows += numRows
+	return nil
+}
+
+func (v *nthValue) AppendFinalResult2Chunk(sctx sessionctx.Context, pr PartialResult, chk *chunk.Chunk) error {
+	p := (*partialResult4NthValue)(pr)
+	if v.nth == 0 || p.seenRows < v.nth {
 		chk.AppendNull(v.ordinal)
 	} else {
 		p.evaluator.appendResult(chk, v.ordinal)
