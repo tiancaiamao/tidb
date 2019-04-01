@@ -302,6 +302,10 @@ func (st *TxnState) cleanup() {
 	}
 }
 
+func (st *TxnState) Buf() kv.MemBuffer {
+	return st.buf
+}
+
 func getBinlogMutation(ctx sessionctx.Context, tableID int64) *binlog.TableMutation {
 	bin := binloginfo.GetPrewriteValue(ctx, true)
 	for i := range bin.Mutations {

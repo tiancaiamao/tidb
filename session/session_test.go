@@ -2549,3 +2549,36 @@ func (s *testSessionSuite) TestTxnGoString(c *C) {
 	tk.MustExec("rollback")
 	c.Assert(fmt.Sprintf("%#v", txn), Equals, "Txn{state=invalid}")
 }
+
+func (s *testSessionSuite) TestPessimisticTxn(c *C) {
+	tk := testkit.NewTestKitWithInit(c, s.store)
+	tk1 := testkit.NewTestKitWithInit(c, s.store)
+	tk2 := testkit.NewTestKitWithInit(c, s.store)
+
+	tk.MustExec("drop table if exists pessimistic")
+	tk.MustExec("create table pessimistic (k int, v int)")
+	tk.MustExec("insert into pessimistic values (1, 1)")
+
+	// t1 lock, t2 update, t1 update and retry statement.
+	tk1.MustExec("begin lock")
+
+	tk2.MustExec("update pessimistic set v = 2 where v = 1")
+	tk.MustQuery("select * from pessimistic").Check(testkit.Rows("1 2"))
+
+	// This statement will retry.
+	tk1.MustExec("update pessimistic set v = 3 where v = 1")
+	tk.MustQuery("select * from pessimistic").Check(testkit.Rows("1 2"))
+	tk1.MustExec("commit")
+
+	tk.MustQuery("select * from pessimistic").Check(testkit.Rows("1 3"))
+
+	// t1 lock, t1 select for update, t2 wait t1.
+	tk1.MustExec("begin lock")
+	tk1.MustExec("select * from pessimistic where k = 1 for update")
+
+	go func() {
+		tk2.MustExec("update pessimistic set v = 2 where k = 1")
+	}()
+
+	tk1.MustExec("commit")
+}
