@@ -90,4 +90,4 @@ require (
 
 replace github.com/pingcap/kvproto => github.com/pingcap/kvproto v0.0.0-20190313025117-cac7819cb728
 
-replace github.com/pingcap/parser => github.com/tiancaiamao/parser v0.0.0-20190401022711-cdbf4cc5a562
+replace github.com/pingcap/parser => github.com/tiancaiamao/parser v0.0.0-20190401080633-b523ba74f7dc

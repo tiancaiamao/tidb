@@ -630,26 +630,32 @@ func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mu
 	if err != nil {
 		return errors.Trace(err)
 	}
+
+	fmt.Println("prewrite mutation = ", mutation)
 	if ok {
 		if dec.lock.startTS != startTS {
+			fmt.Println("prewrite 的时候，遇到锁冲突了...lock start ts = ", dec.lock.startTS, "start ts =", startTS)
 			return dec.lock.lockErr(mutation.Key)
 		}
 		if dec.lock.op != kvrpcpb.Op_PessimisticLock {
 			return nil
 		}
 		// Overwrite the pessimistic lock.
-	}
-
-	dec1 := valueDecoder{
-		expectKey: mutation.Key,
-	}
-	ok, err = dec1.Decode(iter)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	// Note that it's a write conflict here, even if the value is a rollback one.
-	if ok && dec1.value.commitTS >= startTS {
-		return ErrRetryable("write conflict")
+		fmt.Println("overwrite the its own pessimistic lock!!!")
+	} else {
+		fmt.Println("prewrite 没有遇到任何锁呀!!.....")
+		dec1 := valueDecoder{
+			expectKey: mutation.Key,
+		}
+		ok, err = dec1.Decode(iter)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		// Note that it's a write conflict here, even if the value is a rollback one.
+		if ok && dec1.value.commitTS >= startTS {
+			fmt.Println("这里发现，值被人改过了...所以算作是冲突的")
+			return ErrRetryable("write conflict")
+		}
 	}
 
 	op := mutation.GetOp()

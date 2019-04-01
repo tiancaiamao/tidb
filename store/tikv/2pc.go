@@ -398,6 +398,7 @@ func (c *twoPhaseCommitter) prewriteSingleBatch(bo *Backoffer, batch batchKeys) 
 	for i, k := range batch.keys {
 		tmp := c.mutations[string(k)]
 		mutations[i] = &tmp.Mutation
+		fmt.Println("prewrite mutation ... = ", mutations[i])
 	}
 
 	req := &tikvrpc.Request{

@@ -358,6 +358,8 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 		defer span1.Finish()
 	}
 
+	fmt.Println("进入到 handle no delay")
+
 	// Check if "tidb_snapshot" is set for the write executors.
 	// In history read mode, we can not do write operations.
 	switch e.(type) {
@@ -409,8 +411,12 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 			startTS = txnCtx.ForUpdate
 		}
 
+		fmt.Println("pessimistic locking..... keys = ", keys, "ts = ", startTS)
 		err := txn.LockKeys(ctx, startTS, keys...)
 		if err != nil && strings.Contains(err.Error(), "write conflict") {
+
+			fmt.Println("写锁遇到冲突了，重试 statement la")
+
 			oracle := sctx.GetStore().GetOracle()
 			startTS, err := oracle.GetTimestamp(ctx)
 			if err != nil {
@@ -474,6 +480,19 @@ func (a *ExecStmt) buildExecutor(ctx sessionctx.Context) (Executor, error) {
 	}
 
 	b := newExecutorBuilder(ctx, a.InfoSchema)
+	txn, err := ctx.Txn(false)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	if txn.Valid() && txn.IsPessimistic() {
+		txnCtx := ctx.GetSessionVars().TxnCtx
+		if txnCtx.ForUpdate >= txn.StartTS() {
+			// Use the for update ts to build the plan.
+			b.startTS = txnCtx.ForUpdate
+		}
+	}
+
 	e := b.build(a.Plan)
 	if b.err != nil {
 		return nil, errors.Trace(b.err)

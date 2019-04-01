@@ -288,7 +288,7 @@ func (txn *tikvTxn) Commit(ctx context.Context) error {
 	if err == nil {
 		lock.SetCommitTS(committer.commitTS)
 	}
-	log.Debug("[kv]", connID, " txnLatches enabled while txn retryable:", err)
+	log.Info("[kv]", connID, " txnLatches enabled while txn retryable:", err)
 	return errors.Trace(err)
 }
 
