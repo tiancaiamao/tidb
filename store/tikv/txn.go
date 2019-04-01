@@ -209,6 +209,10 @@ func (txn *tikvTxn) DelOption(opt kv.Option) {
 	txn.us.DelOption(opt)
 }
 
+func (txn *tikvTxn) IsPessimistic() bool {
+	return txn.us.GetOption(kv.Pessimistic) != nil
+}
+
 func (txn *tikvTxn) Commit(ctx context.Context) error {
 	if !txn.valid {
 		return kv.ErrInvalidTxn

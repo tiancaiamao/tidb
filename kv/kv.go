@@ -44,6 +44,8 @@ const (
 	SyncLog
 	// KeyOnly retrieve only keys, it can be used in scan now.
 	KeyOnly
+	// Pessimistic is defined for pessimistic lock
+	Pessimistic
 )
 
 // Priority value for transaction priority.
@@ -152,6 +154,7 @@ type Transaction interface {
 	SetAssertion(key Key, assertion AssertionType)
 	// BatchGet gets kv from the memory buffer of statement and transaction, and the kv storage.
 	BatchGet(keys []Key) (map[string][]byte, error)
+	IsPessimistic() bool
 }
 
 // Client is used to send request to KV layer.

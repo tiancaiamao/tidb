@@ -387,7 +387,51 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 		return nil, errors.Trace(err)
 	}
 
+	txn, err := sctx.Txn(false)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	if txn.Valid() && txn.IsPessimistic() {
+		p := txn.(pessimisticTxn)
+		buf := p.Buf()
+		keys := make([]kv.Key, 0, buf.Size())
+		kv.WalkMemBuffer(buf, func(k kv.Key, v []byte) error {
+			keys = append(keys, k)
+			return nil
+		})
+		startTS := txn.StartTS()
+		txnCtx := sctx.GetSessionVars().TxnCtx
+		if txnCtx.ForUpdate >= startTS {
+			startTS = txnCtx.ForUpdate
+		}
+
+		err := txn.LockKeys(ctx, startTS, keys...)
+		if strings.Contains(err.Error(), "write conflict") {
+			oracle := sctx.GetStore().GetOracle()
+			startTS, err := oracle.GetTimestamp(ctx)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			txnCtx := sctx.GetSessionVars().TxnCtx
+			txnCtx.ForUpdate = startTS
+			e, err = a.buildExecutor(sctx)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+
+			if err = e.Open(ctx); err != nil {
+				return nil, errors.Trace(err)
+			}
+			return a.handleNoDelayExecutor(ctx, sctx, e)
+		}
+	}
+
 	return nil, nil
+}
+
+type pessimisticTxn interface {
+	kv.Transaction
+	Buf() kv.MemBuffer
 }
 
 // buildExecutor build a executor from plan, prepared statement may need additional procedure.

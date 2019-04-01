@@ -136,6 +136,10 @@ func (s *mockStorage) Begin() (Transaction, error) {
 	return tx, nil
 }
 
+func (*mockTxn) IsPessimistic() bool {
+	return false
+}
+
 // BeginWithStartTS begins a transaction with startTS.
 func (s *mockStorage) BeginWithStartTS(startTS uint64) (Transaction, error) {
 	return s.Begin()
