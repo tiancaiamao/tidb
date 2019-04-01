@@ -228,7 +228,7 @@ func (txn *tikvTxn) Commit(ctx context.Context) error {
 	// gofail: var mockCommitError bool
 	// if mockCommitError && kv.IsMockCommitErrorEnable() {
 	//  kv.MockCommitErrorDisable()
-	//	return errors.New("mock commit error")
+	//      return errors.New("mock commit error")
 	// }
 
 	metrics.TiKVTxnCmdCounter.WithLabelValues("set").Add(float64(txn.setCnt))
@@ -318,7 +318,7 @@ func (txn *tikvTxn) LockKeys(ctx context.Context, startTS uint64, keys ...kv.Key
 		return nil
 	}
 
-	if startTS > 0 {
+	if txn.IsPessimistic() && startTS > 0 {
 		if txn.committer == nil {
 			// connID is used for log.
 			var connID uint64
@@ -342,7 +342,7 @@ func (txn *tikvTxn) LockKeys(ctx context.Context, startTS uint64, keys ...kv.Key
 		txn.committer.forUpdateTS = startTS
 		err := txn.committer.pessimisticLockKeys(bo, keys1)
 		if err != nil {
-			log.Error(err)
+			logutil.Logger(ctx).Error(err.Error())
 			return errors.Trace(err)
 		}
 	}

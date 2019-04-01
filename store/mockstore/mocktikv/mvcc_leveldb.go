@@ -557,7 +557,7 @@ func pessimisticLockMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvr
 	}
 	// Note that it's a write conflict here, even if the value is a rollback one.
 	if ok && dec1.value.commitTS >= forUpdateTS {
-		return ErrRetryable("write conflict")
+		return ErrRetryable(tidbutil.WriteConflictMarker)
 	}
 
 	lock := mvccLock{
@@ -657,7 +657,7 @@ func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mu
 		// Note that it's a write conflict here, even if the value is a rollback one.
 		if ok && dec1.value.commitTS >= startTS {
 			fmt.Println("这里发现，值被人改过了...所以算作是冲突的")
-			return ErrRetryable("write conflict")
+			return ErrRetryable(tidbutil.WriteConflictMarker)
 		}
 	}
 

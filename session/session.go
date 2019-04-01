@@ -325,8 +325,8 @@ func (s *session) doCommit(ctx context.Context) error {
 	// mockCommitError and mockGetTSErrorInRetry use to test PR #8743.
 	// gofail: var mockCommitError bool
 	// if mockCommitError && mockCommitErrorOnce {
-	//	mockCommitErrorOnce = false
-	//	return kv.ErrRetryable
+	//      mockCommitErrorOnce = false
+	//      return kv.ErrRetryable
 	// }
 
 	if s.sessionVars.BinlogClient != nil {

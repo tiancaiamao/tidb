@@ -217,7 +217,7 @@ func (c *twoPhaseCommitter) initKeysAndMutations(txn *tikvTxn, connID uint64) er
 		logutil.Logger(context.Background()).Error("commit failed",
 			zap.Uint64("conn", connID),
 			zap.Error(err))
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 
 	commitDetail := c.detail
@@ -561,7 +561,7 @@ func (c *twoPhaseCommitter) pessimisticLockSingleBatch(bo *Backoffer, batch batc
 				if conditionPair == nil {
 					panic(fmt.Sprintf("con:%d, conditionPair for key:%s should not be nil", c.connID, key))
 				}
-				log.Debugf("con:%d key: %s already exists", c.connID, key)
+				// logutil.Logger(context.Background()).Debug("con:%d key: %s already exists", c.connID, key)
 				return errors.Trace(conditionPair.Err())
 			}
 
@@ -570,7 +570,7 @@ func (c *twoPhaseCommitter) pessimisticLockSingleBatch(bo *Backoffer, batch batc
 			if err1 != nil {
 				return errors.Trace(err1)
 			}
-			log.Debugf("con:%d 2PC prewrite encounters lock: %v", c.connID, lock)
+			// log.Debugf("con:%d 2PC prewrite encounters lock: %v", c.connID, lock)
 			locks = append(locks, lock)
 		}
 		ok, err := c.store.lockResolver.ResolveLocks(bo, locks)
@@ -840,7 +840,6 @@ func (c *twoPhaseCommitter) execute(ctx context.Context) error {
 	// if tmpMaxTxnTime > 0 {
 	//  c.maxTxnTimeUse = tmpMaxTxnTime
 	// }
-
 	if c.store.oracle.IsExpired(c.startTS, c.maxTxnTimeUse) {
 		err = errors.Errorf("conn%d txn takes too much time, txnStartTS: %d, comm: %d",
 			c.connID, c.startTS, c.commitTS)

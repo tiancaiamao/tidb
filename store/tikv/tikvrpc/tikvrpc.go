@@ -372,6 +372,10 @@ func GenRegionErrorResp(req *Request, e *errorpb.Error) (*Response, error) {
 		resp.Prewrite = &kvrpcpb.PrewriteResponse{
 			RegionError: e,
 		}
+	case CmdPessimisticLock:
+		resp.PessimisticLock = &kvrpcpb.PessimisticLockResponse{
+			RegionError: e,
+		}
 	case CmdCommit:
 		resp.Commit = &kvrpcpb.CommitResponse{
 			RegionError: e,

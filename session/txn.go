@@ -385,11 +385,6 @@ func (s *session) getTxnFuture(ctx context.Context) *txnFuture {
 	return ret
 }
 
-// Buf returns the modification of a statement.
-func (s *TxnState) Buf() kv.MemBuffer {
-	return s.buf
-}
-
 // StmtCommit implements the sessionctx.Context interface.
 func (s *session) StmtCommit() error {
 	defer s.txn.cleanup()

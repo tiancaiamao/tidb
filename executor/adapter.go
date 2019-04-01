@@ -39,6 +39,7 @@ import (
 	"github.com/pingcap/tidb/plugin"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
+	tidbutil "github.com/pingcap/tidb/util"
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/pingcap/tidb/util/sqlexec"
@@ -337,7 +338,7 @@ func (a *ExecStmt) runSelectForUpdate(ctx context.Context, sctx sessionctx.Conte
 	}
 
 	// Retry this "select for update" statement using a new startTS.
-	if strings.Contains(err.Error(), "write conflict") {
+	if strings.Contains(err.Error(), tidbutil.WriteConflictMarker) {
 		oracle := sctx.GetStore().GetOracle()
 		startTS, err := oracle.GetTimestamp(ctx)
 		if err != nil {
@@ -406,10 +407,13 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 		p := txn.(pessimisticTxn)
 		buf := p.Buf()
 		keys := make([]kv.Key, 0, buf.Size())
-		kv.WalkMemBuffer(buf, func(k kv.Key, v []byte) error {
+		if err = kv.WalkMemBuffer(buf, func(k kv.Key, v []byte) error {
 			keys = append(keys, k)
 			return nil
-		})
+		}); err != nil {
+			return nil, err
+		}
+
 		if len(keys) == 0 {
 			return nil, nil
 		}
@@ -421,7 +425,7 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 
 		fmt.Println("pessimistic locking..... keys = ", keys, "ts = ", startTS)
 		err := txn.LockKeys(ctx, startTS, keys...)
-		if err != nil && strings.Contains(err.Error(), "write conflict") {
+		if err != nil && strings.Contains(err.Error(), tidbutil.WriteConflictMarker) {
 
 			fmt.Println("写锁遇到冲突了，重试 statement la")
 
