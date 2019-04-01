@@ -240,8 +240,13 @@ func (a *ExecStmt) Exec(ctx context.Context) (sqlexec.RecordSet, error) {
 		a.Ctx.GetSessionVars().StmtCtx.StmtType = GetStmtLabel(a.StmtNode)
 	}
 
-	// Special handle for "select for update statement"
-	if a.isForUpdate {
+	txn, err := sctx.Txn(false)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	// Special handle for "select for update statement" in pessimistic transaction.
+	if txn.Valid() && txn.IsPessimistic() && a.isForUpdate {
 		return a.runSelectForUpdate(ctx, sctx, e)
 	}
 
@@ -256,10 +261,6 @@ func (a *ExecStmt) Exec(ctx context.Context) (sqlexec.RecordSet, error) {
 	}
 
 	var txnStartTS uint64
-	txn, err1 := sctx.Txn(false)
-	if err1 != nil {
-		return nil, errors.Trace(err)
-	}
 	if txn.Valid() {
 		txnStartTS = txn.StartTS()
 	}
@@ -399,6 +400,9 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 			keys = append(keys, k)
 			return nil
 		})
+		if len(keys) == 0 {
+			return nil, nil
+		}
 		startTS := txn.StartTS()
 		txnCtx := sctx.GetSessionVars().TxnCtx
 		if txnCtx.ForUpdate >= startTS {
@@ -406,7 +410,7 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 		}
 
 		err := txn.LockKeys(ctx, startTS, keys...)
-		if strings.Contains(err.Error(), "write conflict") {
+		if err != nil && strings.Contains(err.Error(), "write conflict") {
 			oracle := sctx.GetStore().GetOracle()
 			startTS, err := oracle.GetTimestamp(ctx)
 			if err != nil {
