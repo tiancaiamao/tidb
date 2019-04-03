@@ -304,6 +304,14 @@ func (txn *tikvTxn) close() {
 }
 
 func (txn *tikvTxn) Rollback() error {
+	// Clean up pessimistic lock.
+	if txn.IsPessimistic() && txn.committer != nil {
+		err := txn.rollbackPessimisticLock()
+		if err != nil {
+			logutil.Logger(context.Background()).Error(err.Error())
+		}
+	}
+
 	if !txn.valid {
 		return kv.ErrInvalidTxn
 	}
@@ -312,6 +320,18 @@ func (txn *tikvTxn) Rollback() error {
 	metrics.TiKVTxnCmdCounter.WithLabelValues("rollback").Inc()
 
 	return nil
+}
+
+func (txn *tikvTxn) rollbackPessimisticLock() error {
+	c := txn.committer
+	if err := c.initKeysAndMutations(txn, 0); err != nil {
+		return errors.Trace(err)
+	}
+	if len(c.keys) == 0 {
+		return nil
+	}
+
+	return c.cleanupKeys(NewBackoffer(context.Background(), cleanupMaxBackoff), c.keys)
 }
 
 func (txn *tikvTxn) LockKeys(ctx context.Context, startTS uint64, keys ...kv.Key) error {
