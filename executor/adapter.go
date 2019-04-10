@@ -366,8 +366,6 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 		defer span1.Finish()
 	}
 
-	fmt.Println("进入到 handle no delay")
-
 	// Check if "tidb_snapshot" is set for the write executors.
 	// In history read mode, we can not do write operations.
 	switch e.(type) {
@@ -423,11 +421,10 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 			startTS = txnCtx.ForUpdate
 		}
 
-		fmt.Println("pessimistic locking..... keys = ", keys, "ts = ", startTS)
 		err := txn.LockKeys(ctx, startTS, keys...)
 		if err != nil && strings.Contains(err.Error(), tidbutil.WriteConflictMarker) {
 
-			fmt.Println("写锁遇到冲突了，重试 statement la")
+			log.Info("pessimistic write conflict, retry statement")
 
 			oracle := sctx.GetStore().GetOracle()
 			startTS, err := oracle.GetTimestamp(ctx)

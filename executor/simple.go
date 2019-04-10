@@ -164,7 +164,7 @@ func (e *SimpleExec) executeBegin(ctx context.Context, s *ast.BeginStmt) error {
 	if err != nil {
 		return err
 	}
-	if s.Pessimistic {
+	if s.Pessimistic || config.GetGlobalConfig().TxnPessimistic {
 		txn.SetOption(kv.Pessimistic, true)
 	}
 	return nil

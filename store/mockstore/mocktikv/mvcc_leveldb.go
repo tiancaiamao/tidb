@@ -634,7 +634,6 @@ func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mu
 		return errors.Trace(err)
 	}
 
-	fmt.Println("prewrite mutation = ", mutation)
 	if ok {
 		if dec.lock.startTS != startTS {
 			fmt.Println("prewrite 的时候，遇到锁冲突了...lock start ts = ", dec.lock.startTS, "start ts =", startTS)

@@ -58,6 +58,7 @@ type Config struct {
 	OOMAction        string          `toml:"oom-action" json:"oom-action"`
 	MemQuotaQuery    int64           `toml:"mem-quota-query" json:"mem-quota-query"`
 	EnableStreaming  bool            `toml:"enable-streaming" json:"enable-streaming"`
+	TxnPessimistic   bool            `toml:"txn-pessimistic" json:"txn-pessimistic"`
 	TxnLocalLatches  TxnLocalLatches `toml:"txn-local-latches" json:"txn-local-latches"`
 	// Set sys variable lower-case-table-names, ref: https://dev.mysql.com/doc/refman/5.7/en/identifier-case-sensitivity.html.
 	// TODO: We actually only support mode 2, which keeps the original case, but the comparison is case-insensitive.

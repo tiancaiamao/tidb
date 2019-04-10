@@ -854,7 +854,12 @@ func (cc *clientConn) writeError(e error) error {
 	if te, ok = originErr.(*terror.Error); ok {
 		m = te.ToSQLError()
 	} else {
-		m = mysql.NewErrf(mysql.ErrUnknown, "%s", e.Error())
+		errMsg := e.Error()
+		if strings.Contains(errMsg, "deadlock") {
+			m = mysql.NewErr(mysql.ErrLockDeadlock)
+		} else {
+			m = mysql.NewErrf(mysql.ErrUnknown, "%s", errMsg)
+		}
 	}
 
 	cc.lastCode = m.Code
