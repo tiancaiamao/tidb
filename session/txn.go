@@ -303,9 +303,15 @@ func (st *TxnState) cleanup() {
 }
 
 func (st *TxnState) FreshModifiedKeys() ([]kv.Key, error) {
-	keys := make([]kv.Key, 0, st.buf.Size())
+	keys := make([]kv.Key, 0, st.buf.Len())
 	if err := kv.WalkMemBuffer(st.buf, func(k kv.Key, v []byte) error {
-		_, err := st.Transaction.Get(k)
+		mb := st.Transaction.GetMemBuffer()
+		if mb == nil {
+			keys = append(keys, k)
+			return nil
+		}
+
+		_, err := mb.Get(k)
 		if kv.IsErrNotFound(err) {
 			keys = append(keys, k)
 			return nil
