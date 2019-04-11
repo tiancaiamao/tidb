@@ -399,19 +399,14 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 
 	txn, err := sctx.Txn(false)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	if txn.Valid() && txn.IsPessimistic() {
 		p := txn.(pessimisticTxn)
-		buf := p.Buf()
-		keys := make([]kv.Key, 0, buf.Size())
-		if err = kv.WalkMemBuffer(buf, func(k kv.Key, v []byte) error {
-			keys = append(keys, k)
-			return nil
-		}); err != nil {
+		keys, err := p.FreshModifiedKeys()
+		if err != nil {
 			return nil, err
 		}
-
 		if len(keys) == 0 {
 			return nil, nil
 		}
@@ -421,7 +416,7 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 			startTS = txnCtx.ForUpdate
 		}
 
-		err := txn.LockKeys(ctx, startTS, keys...)
+		err = txn.LockKeys(ctx, startTS, keys...)
 		if err != nil && strings.Contains(err.Error(), tidbutil.WriteConflictMarker) {
 
 			log.Info("pessimistic write conflict, retry statement")
@@ -450,7 +445,7 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 
 type pessimisticTxn interface {
 	kv.Transaction
-	Buf() kv.MemBuffer
+	FreshModifiedKeys() ([]kv.Key, error)
 }
 
 // buildExecutor build a executor from plan, prepared statement may need additional procedure.

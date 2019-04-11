@@ -302,8 +302,19 @@ func (st *TxnState) cleanup() {
 	}
 }
 
-func (st *TxnState) Buf() kv.MemBuffer {
-	return st.buf
+func (st *TxnState) FreshModifiedKeys() ([]kv.Key, error) {
+	keys := make([]kv.Key, 0, st.buf.Size())
+	if err := kv.WalkMemBuffer(st.buf, func(k kv.Key, v []byte) error {
+		_, err := st.Transaction.Get(k)
+		if kv.IsErrNotFound(err) {
+			keys = append(keys, k)
+			return nil
+		}
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return keys, nil
 }
 
 func getBinlogMutation(ctx sessionctx.Context, tableID int64) *binlog.TableMutation {
