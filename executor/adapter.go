@@ -421,7 +421,7 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 			startTS = txnCtx.ForUpdate
 		}
 
-		err := txn.LockKeys(ctx, startTS, keys...)
+		err = txn.LockKeys(ctx, startTS, keys...)
 		if err != nil && strings.Contains(err.Error(), tidbutil.WriteConflictMarker) {
 
 			log.Info("pessimistic write conflict, retry statement")
@@ -445,7 +445,7 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 		}
 	}
 
-	return nil, nil
+	return nil, err
 }
 
 type pessimisticTxn interface {
