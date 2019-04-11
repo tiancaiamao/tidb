@@ -119,6 +119,15 @@ func (c *twoPhaseCommitter) initKeysAndMutations(txn *tikvTxn, connID uint64) er
 		lockCnt int
 	)
 	mutations := make(map[string]*mutationEx)
+	if txn.IsPessimistic() {
+		keys = append(keys, c.primaryKey)
+		mutations[string(c.primaryKey)] = &mutationEx{
+			Mutation: pb.Mutation{
+				Op:  pb.Op_Lock,
+				Key: c.primaryKey,
+			},
+		}
+	}
 	err := txn.us.WalkBuffer(func(k kv.Key, v []byte) error {
 		if len(v) > 0 {
 			op := pb.Op_Put
@@ -142,7 +151,9 @@ func (c *twoPhaseCommitter) initKeysAndMutations(txn *tikvTxn, connID uint64) er
 			}
 			delCnt++
 		}
-		keys = append(keys, k)
+		if !bytes.Equal(k, c.primaryKey) {
+			keys = append(keys, k)
+		}
 		entrySize := len(k) + len(v)
 		if entrySize > kv.TxnEntrySizeLimit {
 			return kv.ErrEntryTooLarge.GenWithStackByArgs(kv.TxnEntrySizeLimit, entrySize)
@@ -423,7 +434,6 @@ func (c *twoPhaseCommitter) prewriteSingleBatch(bo *Backoffer, batch batchKeys) 
 	for i, k := range batch.keys {
 		tmp := c.mutations[string(k)]
 		mutations[i] = &tmp.Mutation
-		fmt.Println("prewrite mutation ... = ", mutations[i])
 	}
 
 	req := &tikvrpc.Request{
@@ -508,7 +518,7 @@ func (c *twoPhaseCommitter) pessimisticLockSingleBatch(bo *Backoffer, batch batc
 	mutations := make([]*pb.Mutation, len(batch.keys))
 	for i, k := range batch.keys {
 		mutations[i] = &pb.Mutation{
-			Op:  pb.Op_Lock,
+			Op:  pb.Op_PessimisticLock,
 			Key: k,
 		}
 	}
