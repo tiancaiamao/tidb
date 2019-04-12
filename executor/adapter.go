@@ -440,7 +440,7 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 		}
 	}
 
-	return nil, nil
+	return nil, err
 }
 
 type pessimisticTxn interface {
