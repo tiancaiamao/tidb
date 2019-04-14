@@ -305,6 +305,10 @@ func (st *TxnState) cleanup() {
 func (st *TxnState) FreshModifiedKeys() ([]kv.Key, error) {
 	keys := make([]kv.Key, 0, st.buf.Len())
 	if err := kv.WalkMemBuffer(st.buf, func(k kv.Key, v []byte) error {
+		if noNeedToLock(k, v) {
+			// We don't need to lock non-unique index.
+			return nil
+		}
 		mb := st.Transaction.GetMemBuffer()
 		if mb == nil {
 			keys = append(keys, k)
@@ -321,6 +325,18 @@ func (st *TxnState) FreshModifiedKeys() ([]kv.Key, error) {
 		return nil, err
 	}
 	return keys, nil
+}
+
+func noNeedToLock(k, v []byte) bool {
+	if len(v) == 1 && v[0] == '0' {
+		// create an non-unique index doesn't need to lock.
+		return true
+	}
+	if len(v) != 0 {
+		return false
+	}
+	// delete an index doesn't need to lock.
+	return k[10] == 'i'
 }
 
 func getBinlogMutation(ctx sessionctx.Context, tableID int64) *binlog.TableMutation {
