@@ -403,9 +403,9 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 	}
 	if txn.Valid() && txn.IsPessimistic() {
 		p := txn.(pessimisticTxn)
-		keys, err := p.FreshModifiedKeys()
-		if err != nil {
-			return nil, err
+		keys, err1 := p.FreshModifiedKeys()
+		if err1 != nil {
+			return nil, err1
 		}
 		if len(keys) == 0 {
 			return nil, nil
