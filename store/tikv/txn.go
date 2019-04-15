@@ -363,8 +363,7 @@ func (txn *tikvTxn) LockKeys(ctx context.Context, startTS uint64, keys ...kv.Key
 		txn.committer.forUpdateTS = startTS
 		err := txn.committer.pessimisticLockKeys(bo, keys1)
 		if err != nil {
-			logutil.Logger(ctx).Error(err.Error())
-			return errors.Trace(err)
+			return err
 		}
 	}
 

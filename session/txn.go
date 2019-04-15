@@ -311,18 +311,16 @@ func (st *TxnState) FreshModifiedKeys() ([]kv.Key, error) {
 			// We don't need to lock non-unique index.
 			return nil
 		}
-		mb := st.Transaction.GetMemBuffer()
-		if mb == nil {
-			keys = append(keys, k)
-			return nil
+		if mb := st.Transaction.GetMemBuffer(); mb != nil {
+			_, err1 := mb.Get(k)
+			if err1 == nil {
+				// Key is already in txn MemBuffer, must already been locked, we don't need to lock it again.
+				return nil
+			}
 		}
-
-		_, err := mb.Get(k)
-		if kv.IsErrNotFound(err) {
-			keys = append(keys, k)
-			return nil
-		}
-		return err
+		// The statement MemBuffer will be reused, so we must copy the key here.
+		keys = append(keys, append([]byte{}, k...))
+		return nil
 	}); err != nil {
 		return nil, err
 	}

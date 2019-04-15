@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -421,13 +422,17 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 
 			log.Info("pessimistic write conflict, retry statement")
 
-			oracle := sctx.GetStore().GetOracle()
-			startTS, err := oracle.GetTimestamp(ctx)
-			if err != nil {
-				return nil, errors.Trace(err)
+			forUpdateTS := extractConflictTS(err.Error())
+			if forUpdateTS == 0 {
+				oracle := sctx.GetStore().GetOracle()
+				ts, err1 := oracle.GetTimestamp(ctx)
+				if err1 != nil {
+					return nil, errors.Trace(err1)
+				}
+				forUpdateTS = ts
 			}
 			txnCtx := sctx.GetSessionVars().TxnCtx
-			txnCtx.ForUpdate = startTS
+			txnCtx.ForUpdate = forUpdateTS
 			e, err = a.buildExecutor(sctx)
 			if err != nil {
 				return nil, errors.Trace(err)
@@ -441,6 +446,24 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 	}
 
 	return nil, err
+}
+
+func extractConflictTS(errStr string) uint64 {
+	strs := strings.Split(errStr, "conflictTS=")
+	if len(strs) != 2 {
+		return 0
+	}
+	tsPart := strs[1]
+	length := strings.IndexByte(tsPart, ',')
+	if length < 0 {
+		return 0
+	}
+	tsStr := tsPart[:length]
+	ts, err := strconv.ParseUint(tsStr, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return ts
 }
 
 type pessimisticTxn interface {
