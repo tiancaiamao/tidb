@@ -14,6 +14,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -27,6 +28,7 @@ import (
 	"github.com/pingcap/tidb/sessionctx/binloginfo"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/table"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/pingcap/tipb/go-binlog"
@@ -328,6 +330,9 @@ func (st *TxnState) FreshModifiedKeys() ([]kv.Key, error) {
 }
 
 func noNeedToLock(k, v []byte) bool {
+	if !bytes.HasPrefix(k, tablecodec.TablePrefix()) {
+		return false
+	}
 	if len(v) == 1 && v[0] == '0' {
 		// create an non-unique index doesn't need to lock.
 		return true
