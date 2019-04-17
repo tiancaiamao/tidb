@@ -196,6 +196,8 @@ func (req *Request) ToBatchCommandsRequest() *tikvpb.BatchCommandsRequest_Reques
 		return &tikvpb.BatchCommandsRequest_Request{Cmd: &tikvpb.BatchCommandsRequest_Request_RawScan{RawScan: req.RawScan}}
 	case CmdCop:
 		return &tikvpb.BatchCommandsRequest_Request{Cmd: &tikvpb.BatchCommandsRequest_Request_Coprocessor{Coprocessor: req.Cop}}
+	case CmdPessimisticLock:
+		return &tikvpb.BatchCommandsRequest_Request{Cmd: &tikvpb.BatchCommandsRequest_Request_PessimisticLock{PessimisticLock: req.PessimisticLock}}
 	}
 	return nil
 }
@@ -274,6 +276,8 @@ func FromBatchCommandsResponse(res *tikvpb.BatchCommandsResponse_Response) *Resp
 		return &Response{Type: CmdRawScan, RawScan: res.RawScan}
 	case *tikvpb.BatchCommandsResponse_Response_Coprocessor:
 		return &Response{Type: CmdCop, Cop: res.Coprocessor}
+	case *tikvpb.BatchCommandsResponse_Response_PessimisticLock:
+		return &Response{Type: CmdPessimisticLock, PessimisticLock: res.PessimisticLock}
 	}
 	return nil
 }
