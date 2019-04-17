@@ -340,6 +340,8 @@ type SessionVars struct {
 
 	// SlowQueryFile indicates which slow query log file for SLOW_QUERY table to parse.
 	SlowQueryFile string
+
+	PessimisticLock bool
 }
 
 // ConnectionInfo present connection used by audit.
@@ -725,6 +727,8 @@ func (s *SessionVars) SetSystemVar(name string, val string) error {
 		config.GetGlobalConfig().CheckMb4ValueInUTF8 = TiDBOptOn(val)
 	case TiDBSlowQueryFile:
 		s.SlowQueryFile = val
+	case TiDBPessimisticLock:
+		s.PessimisticLock = TiDBOptOn(val)
 	}
 	s.systems[name] = val
 	return nil
