@@ -438,6 +438,9 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 				return nil, errors.Trace(err)
 			}
 
+			// Rollback the statement change before retry it.
+			sctx.StmtRollback()
+
 			if err = e.Open(ctx); err != nil {
 				return nil, errors.Trace(err)
 			}
