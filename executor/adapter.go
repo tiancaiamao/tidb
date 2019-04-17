@@ -352,6 +352,9 @@ func (a *ExecStmt) runSelectForUpdate(ctx context.Context, sctx sessionctx.Conte
 			return nil, errors.Trace(err)
 		}
 
+		// Rollback the statement change before retry it.
+		sctx.StmtRollback()
+
 		if err = e.Open(ctx); err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -437,6 +440,9 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
+
+			// Rollback the statement change before retry it.
+			sctx.StmtRollback()
 
 			if err = e.Open(ctx); err != nil {
 				return nil, errors.Trace(err)
