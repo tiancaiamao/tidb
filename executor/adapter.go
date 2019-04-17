@@ -528,19 +528,18 @@ func (a *ExecStmt) buildExecutor(ctx sessionctx.Context) (Executor, error) {
 		return nil, errors.Trace(b.err)
 	}
 
-	if b.hasSelectLock {
-		a.isForUpdate = true
-	}
-
 	// ExecuteExec is not a real Executor, we only use it to build another Executor from a prepared statement.
 	if executorExec, ok := e.(*ExecuteExec); ok {
-		err := executorExec.Build()
+		err := executorExec.Build(b)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
 		a.isPreparedStmt = true
 		a.Plan = executorExec.plan
 		e = executorExec.stmtExec
+	}
+	if b.hasSelectLock {
+		a.isForUpdate = true
 	}
 	return e, nil
 }
