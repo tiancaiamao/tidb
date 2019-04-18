@@ -100,13 +100,10 @@ type mutationEx struct {
 // newTwoPhaseCommitter creates a twoPhaseCommitter.
 func newTwoPhaseCommitter(txn *tikvTxn, connID uint64) (*twoPhaseCommitter, error) {
 	return &twoPhaseCommitter{
-		store:    txn.store,
-		txn:      txn,
-		startTS:  txn.StartTS(),
-		priority: getTxnPriority(txn),
-		syncLog:  getTxnSyncLog(txn),
-		connID:   connID,
-		detail:   &execdetails.CommitDetails{},
+		store:   txn.store,
+		txn:     txn,
+		startTS: txn.StartTS(),
+		connID:  connID,
 	}, nil
 }
 
@@ -177,6 +174,9 @@ func (c *twoPhaseCommitter) initKeysAndMutations(txn *tikvTxn, connID uint64) er
 			size += len(lockKey)
 		}
 	}
+	if len(keys) == 0 {
+		return nil
+	}
 
 	for _, pair := range txn.assertions {
 		mutation, ok := mutations[string(pair.key)]
@@ -231,15 +231,16 @@ func (c *twoPhaseCommitter) initKeysAndMutations(txn *tikvTxn, connID uint64) er
 		return errors.Trace(err)
 	}
 
-	commitDetail := c.detail
-	commitDetail.WriteSize = size
-	commitDetail.WriteKeys = len(keys)
+	commitDetail := &execdetails.CommitDetails{WriteSize: size, WriteKeys: len(keys)}
 	metrics.TiKVTxnWriteKVCountHistogram.Observe(float64(commitDetail.WriteKeys))
 	metrics.TiKVTxnWriteSizeHistogram.Observe(float64(commitDetail.WriteSize))
 	c.maxTxnTimeUse = maxTxnTimeUse
 	c.keys = keys
 	c.mutations = mutations
 	c.lockTTL = txnLockTTL(txn.startTime, size)
+	c.priority = getTxnPriority(txn)
+	c.syncLog = getTxnSyncLog(txn)
+	c.detail = commitDetail
 	return nil
 }
 
@@ -304,7 +305,7 @@ func (c *twoPhaseCommitter) doActionOnKeys(bo *Backoffer, action twoPhaseCommitA
 	}
 
 	firstIsPrimary := bytes.Equal(keys[0], c.primary())
-	if firstIsPrimary && (action == actionCommit || action == actionCleanup || action == actionPessimisticLock) {
+	if firstIsPrimary && (action == actionCommit || action == actionCleanup) {
 		// primary should be committed/cleanup first
 		err = c.doActionOnBatches(bo, action, batches[:1])
 		if err != nil {
@@ -764,7 +765,6 @@ func (c *twoPhaseCommitter) cleanupKeys(bo *Backoffer, keys [][]byte) error {
 
 func (c *twoPhaseCommitter) pessimisticLockKeys(bo *Backoffer, keys [][]byte) error {
 	return c.doActionOnKeys(bo, actionPessimisticLock, keys)
-
 }
 
 func (c *twoPhaseCommitter) executeAndWriteFinishBinlog(ctx context.Context) error {

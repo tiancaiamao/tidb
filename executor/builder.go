@@ -470,9 +470,9 @@ func (b *executorBuilder) buildDeallocate(v *plannercore.Deallocate) Executor {
 func (b *executorBuilder) buildSelectLock(v *plannercore.PhysicalLock) Executor {
 	b.hasSelectLock = true
 	txnCtx := b.ctx.GetSessionVars().TxnCtx
-	if txnCtx.ForUpdate > txnCtx.StartTS {
+	if txnCtx.ForUpdateTS > txnCtx.StartTS {
 		// Build 'select for update' using the 'for update' ts.
-		b.startTS = txnCtx.ForUpdate
+		b.startTS = txnCtx.ForUpdateTS
 	}
 
 	src := b.build(v.Children()[0])

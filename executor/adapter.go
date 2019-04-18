@@ -153,9 +153,9 @@ type ExecStmt struct {
 
 	Ctx sessionctx.Context
 	// StartTime stands for the starting time when executing the statement.
-	StartTime      time.Time
-	isPreparedStmt bool
-	isForUpdate    bool
+	StartTime         time.Time
+	isPreparedStmt    bool
+	isSelectForUpdate bool
 }
 
 // OriginText returns original statement as a string.
@@ -255,8 +255,8 @@ func (a *ExecStmt) Exec(ctx context.Context) (sqlexec.RecordSet, error) {
 	}
 
 	// Special handle for "select for update statement" in pessimistic transaction.
-	if txn.Valid() && txn.IsPessimistic() && a.isForUpdate {
-		return a.runSelectForUpdate(ctx, sctx, e)
+	if txn.Valid() && txn.IsPessimistic() && a.isSelectForUpdate {
+		return a.runPessimisticSelectForUpdate(ctx, sctx, e)
 	}
 
 	// If the executor doesn't return any result to the client, we execute it without delay.
@@ -309,7 +309,7 @@ func (c *chunkRowRecordSet) Close() error {
 	return nil
 }
 
-func (a *ExecStmt) runSelectForUpdate(ctx context.Context, sctx sessionctx.Context, e Executor) (sqlexec.RecordSet, error) {
+func (a *ExecStmt) runPessimisticSelectForUpdate(ctx context.Context, sctx sessionctx.Context, e Executor) (sqlexec.RecordSet, error) {
 	rs := &recordSet{
 		executor: e,
 		stmt:     a,
@@ -346,7 +346,7 @@ func (a *ExecStmt) runSelectForUpdate(ctx context.Context, sctx sessionctx.Conte
 			return nil, errors.Trace(err)
 		}
 		txnCtx := sctx.GetSessionVars().TxnCtx
-		txnCtx.ForUpdate = startTS
+		txnCtx.ForUpdateTS = startTS
 		e, err = a.buildExecutor(sctx)
 		if err != nil {
 			return nil, errors.Trace(err)
@@ -355,7 +355,7 @@ func (a *ExecStmt) runSelectForUpdate(ctx context.Context, sctx sessionctx.Conte
 		if err = e.Open(ctx); err != nil {
 			return nil, errors.Trace(err)
 		}
-		return a.runSelectForUpdate(ctx, sctx, e)
+		return a.runPessimisticSelectForUpdate(ctx, sctx, e)
 	}
 
 	return nil, err
@@ -404,7 +404,7 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 	}
 	if txn.Valid() && txn.IsPessimistic() {
 		p := txn.(pessimisticTxn)
-		keys, err1 := p.FreshModifiedKeys()
+		keys, err1 := p.KeysNeedToLock()
 		if err1 != nil {
 			return nil, err1
 		}
@@ -413,8 +413,8 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 		}
 		startTS := txn.StartTS()
 		txnCtx := sctx.GetSessionVars().TxnCtx
-		if txnCtx.ForUpdate >= startTS {
-			startTS = txnCtx.ForUpdate
+		if txnCtx.ForUpdateTS >= startTS {
+			startTS = txnCtx.ForUpdateTS
 		}
 
 		err = txn.LockKeys(ctx, startTS, keys...)
@@ -432,7 +432,7 @@ func (a *ExecStmt) handleNoDelayExecutor(ctx context.Context, sctx sessionctx.Co
 				forUpdateTS = ts
 			}
 			txnCtx := sctx.GetSessionVars().TxnCtx
-			txnCtx.ForUpdate = forUpdateTS
+			txnCtx.ForUpdateTS = forUpdateTS
 			e, err = a.buildExecutor(sctx)
 			if err != nil {
 				return nil, errors.Trace(err)
@@ -471,7 +471,7 @@ func extractConflictTS(errStr string) uint64 {
 
 type pessimisticTxn interface {
 	kv.Transaction
-	FreshModifiedKeys() ([]kv.Key, error)
+	KeysNeedToLock() ([]kv.Key, error)
 }
 
 // buildExecutor build a executor from plan, prepared statement may need additional procedure.
@@ -517,9 +517,9 @@ func (a *ExecStmt) buildExecutor(ctx sessionctx.Context) (Executor, error) {
 
 	if txn.Valid() && txn.IsPessimistic() {
 		txnCtx := ctx.GetSessionVars().TxnCtx
-		if txnCtx.ForUpdate >= txn.StartTS() {
+		if txnCtx.ForUpdateTS >= txn.StartTS() {
 			// Use the for update ts to build the plan.
-			b.startTS = txnCtx.ForUpdate
+			b.startTS = txnCtx.ForUpdateTS
 		}
 	}
 
@@ -539,7 +539,7 @@ func (a *ExecStmt) buildExecutor(ctx sessionctx.Context) (Executor, error) {
 		e = executorExec.stmtExec
 	}
 	if b.hasSelectLock {
-		a.isForUpdate = true
+		a.isSelectForUpdate = true
 	}
 	return e, nil
 }

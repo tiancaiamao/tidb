@@ -16,7 +16,6 @@ package mocktikv
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"math"
 	"sync"
 
@@ -526,8 +525,6 @@ func (mvcc *MVCCLevelDB) PessimisticLock(mutations []*kvrpcpb.Mutation, primary 
 }
 
 func pessimisticLockMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mutation, startTS, forUpdateTS uint64, primary []byte, ttl uint64) error {
-	fmt.Println("pessimisticLockMutation, mutation = ", *mutation)
-
 	startKey := mvccEncode(mutation.Key, lockVer)
 	iter := newIterator(db, &util.Range{
 		Start: startKey,
@@ -636,16 +633,13 @@ func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mu
 
 	if ok {
 		if dec.lock.startTS != startTS {
-			fmt.Println("prewrite 的时候，遇到锁冲突了...lock start ts = ", dec.lock.startTS, "start ts =", startTS)
 			return dec.lock.lockErr(mutation.Key)
 		}
 		if dec.lock.op != kvrpcpb.Op_PessimisticLock {
 			return nil
 		}
 		// Overwrite the pessimistic lock.
-		fmt.Println("overwrite the its own pessimistic lock!!!")
 	} else {
-		fmt.Println("prewrite 没有遇到任何锁呀!!.....")
 		dec1 := valueDecoder{
 			expectKey: mutation.Key,
 		}
@@ -655,7 +649,6 @@ func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mu
 		}
 		// Note that it's a write conflict here, even if the value is a rollback one.
 		if ok && dec1.value.commitTS >= startTS {
-			fmt.Println("这里发现，值被人改过了...所以算作是冲突的")
 			return ErrRetryable(tidbutil.WriteConflictMarker)
 		}
 	}
