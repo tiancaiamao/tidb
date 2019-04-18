@@ -99,7 +99,8 @@ func (r *RetryInfo) GetCurrAutoIncrementID() (int64, error) {
 
 // TransactionContext is used to store variables that has transaction scope.
 type TransactionContext struct {
-	ForUpdate     uint64
+	ForUpdate     bool
+	ForUpdateTS   uint64
 	DirtyDB       interface{}
 	Binlog        interface{}
 	InfoSchema    interface{}

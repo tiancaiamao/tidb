@@ -304,7 +304,7 @@ func (st *TxnState) cleanup() {
 	}
 }
 
-func (st *TxnState) FreshModifiedKeys() ([]kv.Key, error) {
+func (st *TxnState) KeysNeedToLock() ([]kv.Key, error) {
 	keys := make([]kv.Key, 0, st.buf.Len())
 	if err := kv.WalkMemBuffer(st.buf, func(k kv.Key, v []byte) error {
 		if noNeedToLock(k, v) {
