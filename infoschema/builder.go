@@ -277,7 +277,9 @@ func (b *Builder) createSchemaTablesForDB(di *model.DBInfo) error {
 		var tbl table.Table
 		tbl, err := tables.TableFromMeta(alloc, t)
 		if err != nil {
-			return errors.Trace(err)
+			// return errors.Trace(err)
+			log.Error("table = ", *tbl.Meta(), err)
+			continue
 		}
 		schTbls.tables[t.Name.L] = tbl
 		sortedTbls := b.is.sortedTablesBuckets[tableBucketIdx(t.ID)]
