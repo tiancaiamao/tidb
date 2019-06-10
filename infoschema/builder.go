@@ -24,6 +24,7 @@ import (
 	"github.com/pingcap/tidb/perfschema"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
+	log "github.com/sirupsen/logrus"
 )
 
 // Builder builds a new InfoSchema.
