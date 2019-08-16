@@ -589,6 +589,7 @@ func (mvcc *MVCCLevelDB) Prewrite(req *kvrpcpb.PrewriteRequest) []error {
 	primary := req.PrimaryLock
 	startTS := req.StartVersion
 	ttl := req.LockTtl
+	minCommitTS := req.MinCommitTs
 	mvcc.mu.Lock()
 	defer mvcc.mu.Unlock()
 
@@ -616,7 +617,7 @@ func (mvcc *MVCCLevelDB) Prewrite(req *kvrpcpb.PrewriteRequest) []error {
 			}
 		}
 		isPessimisticLock := len(req.IsPessimisticLock) > 0 && req.IsPessimisticLock[i]
-		err = prewriteMutation(mvcc.db, batch, m, startTS, primary, ttl, uint64(txnSize), isPessimisticLock)
+		err = prewriteMutation(mvcc.db, batch, m, startTS, primary, ttl, uint64(txnSize), isPessimisticLock, minCommitTS)
 		errs = append(errs, err)
 		if err != nil {
 			anyError = true
@@ -679,7 +680,10 @@ func checkConflictValue(iter *Iterator, m *kvrpcpb.Mutation, startTS uint64) err
 	return nil
 }
 
-func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mutation, startTS uint64, primary []byte, ttl uint64, txnSize uint64, isPessimisticLock bool) error {
+func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch,
+	mutation *kvrpcpb.Mutation, startTS uint64,
+	primary []byte, ttl uint64, txnSize uint64,
+	isPessimisticLock bool, minCommitTS uint64) error {
 	startKey := mvccEncode(mutation.Key, lockVer)
 	iter := newIterator(db, &util.Range{
 		Start: startKey,
@@ -715,6 +719,7 @@ func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch, mutation *kvrpcpb.Mu
 	if op == kvrpcpb.Op_Insert {
 		op = kvrpcpb.Op_Put
 	}
+
 	lock := mvccLock{
 		startTS: startTS,
 		primary: primary,

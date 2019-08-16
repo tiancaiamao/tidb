@@ -485,6 +485,7 @@ func (c *twoPhaseCommitter) buildPrewriteRequest(batch batchKeys) *tikvrpc.Reque
 		ForUpdateTs:       c.forUpdateTS,
 		TxnSize:           uint64(len(batch.keys)),
 	}
+	req.MinCommitTs = c.startTS + 1
 	return tikvrpc.NewRequest(tikvrpc.CmdPrewrite, req, pb.Context{Priority: c.priority, SyncLog: c.syncLog})
 }
 
