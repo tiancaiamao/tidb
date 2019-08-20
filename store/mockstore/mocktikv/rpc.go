@@ -352,6 +352,7 @@ func (h *rpcHandler) handleKvCommit(req *kvrpcpb.CommitRequest) *kvrpcpb.CommitR
 }
 
 func (h *rpcHandler) handleKvCleanup(req *kvrpcpb.CleanupRequest) *kvrpcpb.CleanupResponse {
+	fmt.Println("receive clean up request ... ", req)
 	if !h.checkKeyInRegion(req.Key) {
 		panic("KvCleanup: key not in region")
 	}
@@ -363,6 +364,20 @@ func (h *rpcHandler) handleKvCleanup(req *kvrpcpb.CleanupRequest) *kvrpcpb.Clean
 		} else {
 			resp.Error = convertToKeyError(err)
 		}
+	}
+	return &resp
+}
+
+func (h *rpcHandler) handleKvCheckTxnStatus(req *kvrpcpb.CheckTxnStatusRequest) *kvrpcpb.CheckTxnStatusResponse {
+	if !h.checkKeyInRegion(req.PrimaryKey) {
+		panic("KvCleanup: key not in region")
+	}
+	var resp kvrpcpb.CheckTxnStatusResponse
+	ttl, commitTS, err := h.mvccStore.CheckTxnStatus(req.PrimaryKey, req.GetStartVersion(), req.GetCurrentTs())
+	if err != nil {
+		resp.Error = convertToKeyError(err)
+	} else {
+		resp.LockTtl, resp.CommitVersion = ttl, commitTS
 	}
 	return &resp
 }
@@ -754,6 +769,14 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 			return resp, nil
 		}
 		resp.Resp = handler.handleKvCleanup(r)
+	case tikvrpc.CmdCheckTxnStatus:
+		r := req.CheckTxnStatus()
+		fmt.Println("run here ... check txn status", r.StartVersion, r.PrimaryKey)
+		if err := handler.checkRequest(reqCtx, r.Size()); err != nil {
+			resp.Resp = &kvrpcpb.CheckTxnStatusResponse{RegionError: err}
+			return resp, nil
+		}
+		resp.Resp = handler.handleKvCheckTxnStatus(r)
 	case tikvrpc.CmdBatchGet:
 		r := req.BatchGet()
 		if err := handler.checkRequest(reqCtx, r.Size()); err != nil {

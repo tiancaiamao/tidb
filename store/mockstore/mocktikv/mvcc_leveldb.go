@@ -15,6 +15,7 @@ package mocktikv
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"sync"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/pingcap/goleveldb/leveldb/util"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/parser/terror"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/deadlock"
 	"github.com/pingcap/tidb/util/logutil"
@@ -728,6 +730,10 @@ func prewriteMutation(db *leveldb.DB, batch *leveldb.Batch,
 		ttl:     ttl,
 		txnSize: txnSize,
 	}
+	if bytes.Equal(primary, mutation.GetKey()) {
+		lock.minCommitTS = minCommitTS
+	}
+
 	writeKey := mvccEncode(mutation.Key, lockVer)
 	writeValue, err := lock.MarshalBinary()
 	if err != nil {
@@ -851,6 +857,7 @@ func rollbackKey(db *leveldb.DB, batch *leveldb.Batch, key []byte, startTS uint6
 		// If current transaction's lock exist.
 		if ok && dec.lock.startTS == startTS {
 			if err = rollbackLock(batch, dec.lock, key, startTS); err != nil {
+				fmt.Println("rollback ...key = ", key, startTS)
 				return errors.Trace(err)
 			}
 			return nil
@@ -929,11 +936,89 @@ func (mvcc *MVCCLevelDB) Cleanup(key []byte, startTS uint64) error {
 	}()
 
 	batch := &leveldb.Batch{}
+	fmt.Println("now clean up key = ", key, startTS)
 	err := rollbackKey(mvcc.db, batch, key, startTS)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	return mvcc.db.Write(batch, nil)
+}
+
+func (mvcc *MVCCLevelDB) CheckTxnStatus(primaryKey []byte, startTS uint64, currentTS uint64) (uint64, uint64, error) {
+	fmt.Println("check txn status in MVCC", primaryKey, startTS, currentTS)
+	mvcc.mu.Lock()
+	defer mvcc.mu.Unlock()
+
+	startKey := mvccEncode(primaryKey, lockVer)
+	iter := newIterator(mvcc.db, &util.Range{
+		Start: startKey,
+	})
+	defer iter.Release()
+
+	if iter.Valid() {
+		dec := lockDecoder{
+			expectKey: primaryKey,
+		}
+		ok, err := dec.Decode(iter)
+		if err != nil {
+			return 0, 0, errors.Trace(err)
+		}
+		// If current transaction's lock exist.
+		if ok && dec.lock.startTS == startTS {
+			lock := dec.lock
+			batch := &leveldb.Batch{}
+
+			fmt.Println(" check txn status meet lock ...", lock.ttl)
+			if uint64(oracle.ExtractPhysical(lock.startTS))+lock.ttl < uint64(oracle.ExtractPhysical(currentTS)) {
+				fmt.Println("lock ttl is timeout, cleanup the txn")
+				if err = rollbackLock(batch, lock, primaryKey, startTS); err != nil {
+					fmt.Println("rollback ...key = ", primaryKey, startTS)
+					return 0, 0, errors.Trace(err)
+				}
+				if err = mvcc.db.Write(batch, nil); err != nil {
+					return 0, 0, errors.Trace(err)
+				}
+				return 0, 0, nil
+			} else {
+				// Push forward the minCommitTS
+				fmt.Println("push min commit tso")
+				if lock.minCommitTS > 0 {
+					lock.minCommitTS = currentTS
+					writeKey := mvccEncode(primaryKey, lockVer)
+					writeValue, err := lock.MarshalBinary()
+					if err != nil {
+						return 0, 0, errors.Trace(err)
+					}
+					batch.Put(writeKey, writeValue)
+					if err = mvcc.db.Write(batch, nil); err != nil {
+						return 0, 0, errors.Trace(err)
+					}
+				}
+
+				return lock.ttl, 0, nil
+			}
+		}
+
+		fmt.Println(" check txn status already committed ...")
+		// If current transaction's lock not exist.
+		// If commit info of current transaction exist.
+		c, ok, err := getTxnCommitInfo(iter, primaryKey, startTS)
+		if err != nil {
+			return 0, 0, errors.Trace(err)
+		}
+		if ok {
+			// If current transaction is already committed.
+			if c.valueType != typeRollback {
+				return 0, c.commitTS, nil
+			}
+			// If current transaction is already rollback.
+			return 0, 0, nil
+		}
+	}
+
+	// If current transaction is not prewritted before.
+	// The code should not run to here.
+	return 0, 0, errors.New("CheckTxnStatus can't find the primary lock, must be bug!")
 }
 
 // ScanLock implements the MVCCStore interface.

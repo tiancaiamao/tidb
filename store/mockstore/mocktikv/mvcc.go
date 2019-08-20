@@ -48,6 +48,7 @@ type mvccLock struct {
 	ttl         uint64
 	forUpdateTS uint64
 	txnSize     uint64
+	minCommitTS uint64
 }
 
 type mvccEntry struct {
@@ -259,6 +260,7 @@ type MVCCStore interface {
 	BatchResolveLock(startKey, endKey []byte, txnInfos map[uint64]uint64) error
 	GC(startKey, endKey []byte, safePoint uint64) error
 	DeleteRange(startKey, endKey []byte) error
+	CheckTxnStatus(primaryKey []byte, startTS uint64, currentTS uint64) (ttl, commitTS uint64, err error)
 	Close() error
 }
 
