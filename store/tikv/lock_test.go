@@ -237,6 +237,24 @@ func (s *testLockSuite) prewriteTxn(c *C, txn *tikvTxn) {
 	c.Assert(err, IsNil)
 }
 
+func (s *testLockSuite) TestTxnHeartBeat(c *C) {
+	txn, err := s.store.Begin()
+	c.Assert(err, IsNil)
+	txn.Set(kv.Key("key"), []byte("value"))
+	s.prewriteTxn(c, txn.(*tikvTxn))
+
+	bo := NewBackoffer(context.Background(), prewriteMaxBackoff)
+	err = sendTxnHeartBeat(bo, s.store, []byte("key"), txn.StartTS(), 666)
+	c.Assert(err, IsNil)
+
+	// The getTxnStatus API is confusing, it really means rollback!
+	_, err = newLockResolver(s.store).getTxnStatus(bo, txn.StartTS(), []byte("key"))
+	c.Assert(err, IsNil)
+
+	err = sendTxnHeartBeat(bo, s.store, []byte("key"), txn.StartTS(), 666)
+	c.Assert(err, NotNil)
+}
+
 func (s *testLockSuite) mustGetLock(c *C, key []byte) *Lock {
 	ver, err := s.store.CurrentVersion()
 	c.Assert(err, IsNil)

@@ -165,6 +165,12 @@ github.com/pingcap/kvproto v0.0.0-20190816090559-285beb790d0f h1:oDJgYepSizhL8Xq
 github.com/pingcap/kvproto v0.0.0-20190816090559-285beb790d0f/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
 github.com/pingcap/kvproto v0.0.0-20190819140752-10379ee71c52 h1:fBLcoZoBQAC45ZECwGIWgq/iVs1/Rx10ABJUqwRP93M=
 github.com/pingcap/kvproto v0.0.0-20190819140752-10379ee71c52/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
+github.com/pingcap/kvproto v0.0.0-20190820065202-24ee54f68b98 h1:48SnCOSHJit5XqF2biBx4sVC14xqjX+s1HUbgesjd9Q=
+github.com/pingcap/kvproto v0.0.0-20190820065202-24ee54f68b98/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
+github.com/pingcap/kvproto v0.0.0-20190820082514-c05465839dd9 h1:MHDlmSkA5zHt+Oze0A16pZkIiWSS+Ygbj8AfZSTgPt4=
+github.com/pingcap/kvproto v0.0.0-20190820082514-c05465839dd9/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
+github.com/pingcap/kvproto v0.0.0-20190821031412-0ac4d6c611e4 h1:XGqv8eODhKlEEXIokTZjZqRP8E4z7j8ICegfaoFLGHQ=
+github.com/pingcap/kvproto v0.0.0-20190821031412-0ac4d6c611e4/go.mod h1:QMdbTAXCHzzygQzqcG9uVUgU2fKeSN1GmfMiykdSzzY=
 github.com/pingcap/log v0.0.0-20190214045112-b37da76f67a7/go.mod h1:xsfkWVaFVV5B8e1K9seWfyJWFrIhbtUTAD8NV1Pq3+w=
 github.com/pingcap/log v0.0.0-20190307075452-bd41d9273596 h1:t2OQTpPJnrPDGlvA+3FwJptMTt6MEPdzK1Wt99oaefQ=
 github.com/pingcap/log v0.0.0-20190307075452-bd41d9273596/go.mod h1:WpHUKhNZ18v116SvGrmjkA9CBhYmuUTKL+p8JC9ANEw=

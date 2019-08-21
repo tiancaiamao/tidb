@@ -936,12 +936,52 @@ func (mvcc *MVCCLevelDB) Cleanup(key []byte, startTS uint64) error {
 	}()
 
 	batch := &leveldb.Batch{}
-	fmt.Println("now clean up key = ", key, startTS)
 	err := rollbackKey(mvcc.db, batch, key, startTS)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	return mvcc.db.Write(batch, nil)
+}
+
+func (mvcc *MVCCLevelDB) TxnHeartBeat(key []byte, startTS uint64, adviseTTL uint64) (uint64, error) {
+	startKey := mvccEncode(key, lockVer)
+	iter := newIterator(mvcc.db, &util.Range{
+		Start: startKey,
+	})
+	defer iter.Release()
+
+	if iter.Valid() {
+		dec := lockDecoder{
+			expectKey: key,
+		}
+		ok, err := dec.Decode(iter)
+		if err != nil {
+			return 0, errors.Trace(err)
+		}
+		if ok && dec.lock.startTS == startTS {
+			lock := dec.lock
+			batch := &leveldb.Batch{}
+			// Increase the ttl
+			if adviseTTL < lock.ttl {
+				lock.ttl = lock.ttl/2 + adviseTTL/2
+			} else {
+				lock.ttl = adviseTTL
+			}
+			writeKey := mvccEncode(key, lockVer)
+			writeValue, err := lock.MarshalBinary()
+			if err != nil {
+				return 0, errors.Trace(err)
+			}
+			batch.Put(writeKey, writeValue)
+			if err = mvcc.db.Write(batch, nil); err != nil {
+				return 0, errors.Trace(err)
+			}
+
+			fmt.Println("increase transaction ttl to", lock.ttl)
+			return lock.ttl, nil
+		}
+	}
+	return 0, errors.New("lock doesn't exist!!")
 }
 
 func (mvcc *MVCCLevelDB) CheckTxnStatus(primaryKey []byte, startTS uint64, currentTS uint64) (uint64, uint64, error) {
@@ -999,7 +1039,6 @@ func (mvcc *MVCCLevelDB) CheckTxnStatus(primaryKey []byte, startTS uint64, curre
 			}
 		}
 
-		fmt.Println(" check txn status already committed ...")
 		// If current transaction's lock not exist.
 		// If commit info of current transaction exist.
 		c, ok, err := getTxnCommitInfo(iter, primaryKey, startTS)

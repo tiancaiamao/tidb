@@ -260,8 +260,13 @@ type MVCCStore interface {
 	BatchResolveLock(startKey, endKey []byte, txnInfos map[uint64]uint64) error
 	GC(startKey, endKey []byte, safePoint uint64) error
 	DeleteRange(startKey, endKey []byte) error
-	CheckTxnStatus(primaryKey []byte, startTS uint64, currentTS uint64) (ttl, commitTS uint64, err error)
 	Close() error
+}
+
+// MVCCLargeTxn is for large txn.
+type MVCCLargeTxn interface {
+	CheckTxnStatus(primaryKey []byte, startTS uint64, currentTS uint64) (ttl, commitTS uint64, err error)
+	TxnHeartBeat(primaryKey []byte, startTS uint64, adviseTTL uint64) (uint64, error)
 }
 
 // RawKV is a key-value storage. MVCCStore can be implemented upon it with timestamp encoded into key.

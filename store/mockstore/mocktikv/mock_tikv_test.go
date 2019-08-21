@@ -658,15 +658,16 @@ func (s *testMVCCLevelDB) TestErrors(c *C) {
 
 func (s *testMVCCLevelDB) TestCheckTxnStatus(c *C) {
 	s.mustPrewriteOK1(c, putMutations("pk", "val"), "pk", 5, 666)
+	store := s.store.(MVCCLargeTxn)
 
-	ttl, commitTS, err := s.store.CheckTxnStatus([]byte("pk"), 5)
+	ttl, commitTS, err := store.CheckTxnStatus([]byte("pk"), 5, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(ttl, Equals, uint64(666))
 	c.Assert(commitTS, Equals, uint64(0))
 
 	s.mustCommitOK(c, [][]byte{[]byte("pk")}, 5, 30)
 
-	ttl, commitTS, err = s.store.CheckTxnStatus([]byte("pk"), 5)
+	ttl, commitTS, err = store.CheckTxnStatus([]byte("pk"), 5, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(ttl, Equals, uint64(0))
 	c.Assert(commitTS, Equals, uint64(30))
@@ -674,8 +675,28 @@ func (s *testMVCCLevelDB) TestCheckTxnStatus(c *C) {
 	s.mustPrewriteOK1(c, putMutations("pk1", "val"), "pk1", 5, 666)
 	s.mustRollbackOK(c, [][]byte{[]byte("pk1")}, 5)
 
-	ttl, commitTS, err = s.store.CheckTxnStatus([]byte("pk1"), 5)
+	ttl, commitTS, err = store.CheckTxnStatus([]byte("pk1"), 5, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(ttl, Equals, uint64(0))
 	c.Assert(commitTS, Equals, uint64(0))
+}
+
+func (s *testMVCCLevelDB) TestTxnHeartBeat(c *C) {
+	s.mustPrewriteOK1(c, putMutations("pk", "val"), "pk", 5, 666)
+	store := s.store.(MVCCLargeTxn)
+
+	// Update the ttl
+	ttl, err := store.TxnHeartBeat([]byte("pk"), 5, 888)
+	c.Assert(err, IsNil)
+	c.Assert(ttl, Greater, uint64(666))
+
+	// Advise ttl is small
+	ttl, err = store.TxnHeartBeat([]byte("pk"), 5, 300)
+	c.Assert(err, IsNil)
+	c.Assert(ttl, Greater, uint64(300))
+
+	// The lock has already been clean up
+	c.Assert(s.store.Cleanup([]byte("pk"), 5), IsNil)
+	ttl, err = store.TxnHeartBeat([]byte("pk"), 5, 1000)
+	c.Assert(err, NotNil)
 }

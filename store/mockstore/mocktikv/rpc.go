@@ -370,15 +370,40 @@ func (h *rpcHandler) handleKvCleanup(req *kvrpcpb.CleanupRequest) *kvrpcpb.Clean
 
 func (h *rpcHandler) handleKvCheckTxnStatus(req *kvrpcpb.CheckTxnStatusRequest) *kvrpcpb.CheckTxnStatusResponse {
 	if !h.checkKeyInRegion(req.PrimaryKey) {
-		panic("KvCleanup: key not in region")
+		panic("KvCheckTxnStatus: key not in region")
 	}
 	var resp kvrpcpb.CheckTxnStatusResponse
-	ttl, commitTS, err := h.mvccStore.CheckTxnStatus(req.PrimaryKey, req.GetStartVersion(), req.GetCurrentTs())
+	store, ok := h.mvccStore.(MVCCLargeTxn)
+	if !ok {
+		resp.Error = &kvrpcpb.KeyError{Abort: "not implement"}
+		return &resp
+	}
+
+	ttl, commitTS, err := store.CheckTxnStatus(req.GetPrimaryKey(), req.GetStartVersion(), req.GetCurrentTs())
 	if err != nil {
 		resp.Error = convertToKeyError(err)
 	} else {
 		resp.LockTtl, resp.CommitVersion = ttl, commitTS
 	}
+	return &resp
+}
+
+func (h *rpcHandler) handleTxnHeartBeat(req *kvrpcpb.TxnHeartBeatRequest) *kvrpcpb.TxnHeartBeatResponse {
+	if !h.checkKeyInRegion(req.PrimaryLock) {
+		panic("KvTxnHeartBeat: key not in region")
+	}
+	var resp kvrpcpb.TxnHeartBeatResponse
+	store, ok := h.mvccStore.(MVCCLargeTxn)
+	if !ok {
+		resp.Error = &kvrpcpb.KeyError{Abort: "not implement"}
+		return &resp
+	}
+
+	ttl, err := store.TxnHeartBeat(req.PrimaryLock, req.StartVersion, req.AdviseLockTtl)
+	if err != nil {
+		resp.Error = convertToKeyError(err)
+	}
+	resp.LockTtl = ttl
 	return &resp
 }
 
@@ -771,12 +796,19 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 		resp.Resp = handler.handleKvCleanup(r)
 	case tikvrpc.CmdCheckTxnStatus:
 		r := req.CheckTxnStatus()
-		fmt.Println("run here ... check txn status", r.StartVersion, r.PrimaryKey)
 		if err := handler.checkRequest(reqCtx, r.Size()); err != nil {
 			resp.Resp = &kvrpcpb.CheckTxnStatusResponse{RegionError: err}
 			return resp, nil
 		}
 		resp.Resp = handler.handleKvCheckTxnStatus(r)
+	case tikvrpc.CmdTxnHeartBeat:
+		r := req.TxnHeartBeat()
+		fmt.Println("run here ...  txn heartbeat", r.StartVersion, r.PrimaryLock)
+		if err := handler.checkRequest(reqCtx, r.Size()); err != nil {
+			resp.Resp = &kvrpcpb.TxnHeartBeatResponse{RegionError: err}
+			return resp, nil
+		}
+		resp.Resp = handler.handleTxnHeartBeat(r)
 	case tikvrpc.CmdBatchGet:
 		r := req.BatchGet()
 		if err := handler.checkRequest(reqCtx, r.Size()); err != nil {
