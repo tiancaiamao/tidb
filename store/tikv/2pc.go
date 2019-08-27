@@ -674,6 +674,7 @@ func (c *twoPhaseCommitter) pessimisticLockSingleBatch(bo *Backoffer, batch batc
 			if err1 != nil {
 				return errors.Trace(err1)
 			}
+			fmt.Printf("pessimistic single batch meet lock: %#v\n", lock)
 			locks = append(locks, lock)
 		}
 		_, err = c.store.lockResolver.ResolveLocks(bo, locks)

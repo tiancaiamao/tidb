@@ -77,3 +77,5 @@ require (
 )
 
 replace github.com/pingcap/kvproto => github.com/pingcap/kvproto v0.0.0-20190821031412-0ac4d6c611e4
+
+go 1.13

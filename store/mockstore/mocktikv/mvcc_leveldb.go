@@ -1055,9 +1055,10 @@ func (mvcc *MVCCLevelDB) CheckTxnStatus(primaryKey []byte, startTS uint64, curre
 		}
 	}
 
-	// If current transaction is not prewritted before.
-	// The code should not run to here.
-	return 0, 0, errors.New("CheckTxnStatus can't find the primary lock, must be bug!")
+	// If current transaction is not prewritted before, it's maybe pessimistic lock.
+	// When pessimistic lock rollback, it may not leave a 'rollbacked' tombstone.
+	logutil.BgLogger().Debug("CheckTxnStatus can't find the primary lock, must be bug!")
+	return 0, 0, nil
 }
 
 // ScanLock implements the MVCCStore interface.
