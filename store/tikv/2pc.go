@@ -112,6 +112,8 @@ type twoPhaseCommitter struct {
 	// For pessimistic transaction
 	isPessimistic bool
 	isFirstLock   bool
+	// Used by large transaction to keep ttl alive.
+	ttlCh chan struct{}
 }
 
 type mutationEx struct {
@@ -127,17 +129,23 @@ func newTwoPhaseCommitter(txn *tikvTxn, connID uint64) (*twoPhaseCommitter, erro
 		txn:     txn,
 		startTS: txn.StartTS(),
 		connID:  connID,
+		ttlCh:   make(chan struct{}),
 	}, nil
 }
 
-func (c *twoPhaseCommitter) ttlKeepAlive(ctx context.Context) {
+func (c *twoPhaseCommitter) ttlKeepAlive(bo *Backoffer, ch chan struct{}) {
 	ttl := c.lockTTL
+	ticker := time.NewTicker(2 * time.Millisecond)
+	defer ticker.Stop()
 	for {
-		bo := NewBackoffer(ctx, CommitMaxBackoff)
-		err := sendTxnHeartBeat(bo, c.store, c.primary(), c.startTS, ttl)
-		if err != nil {
-			fmt.Println(err)
-			return
+		select {
+		case <-ch:
+		case <-ticker.C:
+			err := sendTxnHeartBeat(bo, c.store, c.primary(), c.startTS, ttl)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
 		}
 	}
 }
@@ -565,6 +573,10 @@ func (c *twoPhaseCommitter) prewriteSingleBatch(bo *Backoffer, batch batchKeys) 
 		prewriteResp := resp.Resp.(*pb.PrewriteResponse)
 		keyErrs := prewriteResp.GetErrors()
 		if len(keyErrs) == 0 {
+			isPrimary := bytes.Equal(batch.keys[0], c.primary())
+			if isPrimary {
+				go c.ttlKeepAlive(bo, c.ttlCh)
+			}
 			return nil
 		}
 		var locks []*Lock
@@ -919,6 +931,7 @@ func (c *twoPhaseCommitter) execute(ctx context.Context) error {
 				c.cleanWg.Done()
 			}()
 		}
+		close(c.ttlCh)
 	}()
 
 	binlogChan := c.prewriteBinlog(ctx)
