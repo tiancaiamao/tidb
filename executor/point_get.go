@@ -46,8 +46,8 @@ func (b *executorBuilder) buildPointGet(p *plannercore.PointGetPlan) Executor {
 		lock:         p.Lock,
 	}
 	b.isSelectForUpdate = p.IsForUpdate
-	e.base().initCap = 1
-	e.base().maxChunkSize = 1
+	e.Base().initCap = 1
+	e.Base().maxChunkSize = 1
 	return e
 }
 

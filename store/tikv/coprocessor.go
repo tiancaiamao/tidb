@@ -88,6 +88,8 @@ type copTask struct {
 	respChan  chan *copResponse
 	storeAddr string
 	cmdType   tikvrpc.CmdType
+
+	resolvedLock []uint64
 }
 
 func (r *copTask) String() string {
@@ -362,6 +364,7 @@ type copIteratorWorker struct {
 	finishCh <-chan struct{}
 	vars     *kv.Variables
 
+	clientHelper
 	memTracker *memory.Tracker
 }
 
@@ -452,6 +455,7 @@ func (it *copIterator) open(ctx context.Context) {
 	it.wg.Add(it.concurrency)
 	// Start it.concurrency number of workers to handle cop requests.
 	for i := 0; i < it.concurrency; i++ {
+		sender := NewRegionRequestSender(it.store.regionCache, it.store.client)
 		worker := &copIteratorWorker{
 			taskCh:   taskCh,
 			wg:       &it.wg,
@@ -460,6 +464,11 @@ func (it *copIterator) open(ctx context.Context) {
 			respChan: it.respChan,
 			finishCh: it.finishCh,
 			vars:     it.vars,
+			clientHelper: clientHelper{
+				LockResolver:        it.store.lockResolver,
+				RegionRequestSender: sender,
+				resolved:            make(map[RegionVerID]resolvedLock),
+			},
 
 			memTracker: it.memTracker,
 		}
@@ -629,7 +638,6 @@ func (worker *copIteratorWorker) handleTaskOnce(bo *Backoffer, task *copTask, ch
 		}
 	})
 
-	sender := NewRegionRequestSender(worker.store.regionCache, worker.store.client)
 	req := tikvrpc.NewRequest(task.cmdType, &coprocessor.Request{
 		Tp:     worker.req.Tp,
 		Data:   worker.req.Data,
@@ -642,12 +650,12 @@ func (worker *copIteratorWorker) handleTaskOnce(bo *Backoffer, task *copTask, ch
 		ScanDetail:     true,
 	})
 	startTime := time.Now()
-	resp, rpcCtx, err := sender.SendReqCtx(bo, req, task.region, ReadTimeoutMedium)
+	resp, rpcCtx, err := worker.SendReqCtx(bo, req, task.region)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 	// Set task.storeAddr field so its task.String() method have the store address information.
-	task.storeAddr = sender.storeAddr
+	task.storeAddr = worker.RegionRequestSender.storeAddr
 	costTime := time.Since(startTime)
 	if costTime > minLogCopTaskTime {
 		worker.logTimeCopTask(costTime, task, bo, resp)
@@ -754,6 +762,33 @@ func (worker *copIteratorWorker) handleCopStreamResult(bo *Backoffer, rpcCtx *RP
 	}
 }
 
+// primary lock: start_ts =>  min_commit_ts
+type resolvedLock map[uint64]uint64
+
+type clientHelper struct {
+	*LockResolver
+	*RegionRequestSender
+
+	resolved map[RegionVerID]resolvedLock
+}
+
+func (ch *clientHelper) ResolveLocks(bo *Backoffer, region RegionVerID, locks []*Lock) (msBeforeTxnExpired int64, err error) {
+	msBeforeTxnExpired, err = ch.LockResolver.ResolveLocks(bo, locks)
+	if err != nil {
+		return msBeforeTxnExpired, err
+	}
+	if _, ok := ch.resolved[region]; !ok {
+		// FIXME:
+	}
+	return
+}
+
+func (ch *clientHelper) SendReqCtx(bo *Backoffer, req *tikvrpc.Request, regionID RegionVerID) (*tikvrpc.Response, *RPCContext, error) {
+	// FIXME:
+	// req.Context.ResolvedLock = ch.resolved
+	return ch.RegionRequestSender.SendReqCtx(bo, req, regionID, ReadTimeoutMedium)
+}
+
 // handleCopResponse checks coprocessor Response for region split and lock,
 // returns more tasks when that happens, or handles the response if no error.
 // if we're handling streaming coprocessor response, lastRange is the range of last
@@ -769,7 +804,7 @@ func (worker *copIteratorWorker) handleCopResponse(bo *Backoffer, rpcCtx *RPCCon
 	if lockErr := resp.pbResp.GetLocked(); lockErr != nil {
 		logutil.BgLogger().Debug("coprocessor encounters",
 			zap.Stringer("lock", lockErr))
-		msBeforeExpired, err1 := worker.store.lockResolver.ResolveLocks(bo, []*Lock{NewLock(lockErr)})
+		msBeforeExpired, err1 := worker.ResolveLocks(bo, task.region, []*Lock{NewLock(lockErr)})
 		if err1 != nil {
 			return nil, errors.Trace(err1)
 		}

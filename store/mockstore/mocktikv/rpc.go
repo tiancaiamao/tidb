@@ -140,6 +140,7 @@ type rpcHandler struct {
 	rawEndKey   []byte
 	// isolationLevel is used for current request.
 	isolationLevel kvrpcpb.IsolationLevel
+	resolvedLocks  []uint64
 }
 
 func (h *rpcHandler) checkRequestContext(ctx *kvrpcpb.Context) *errorpb.Error {
@@ -213,6 +214,7 @@ func (h *rpcHandler) checkRequestContext(ctx *kvrpcpb.Context) *errorpb.Error {
 	}
 	h.startKey, h.endKey = region.StartKey, region.EndKey
 	h.isolationLevel = ctx.IsolationLevel
+	h.resolvedLocks = ctx.ResolvedLocks
 	return nil
 }
 
@@ -264,7 +266,7 @@ func (h *rpcHandler) handleKvScan(req *kvrpcpb.ScanRequest) *kvrpcpb.ScanRespons
 		if len(req.EndKey) > 0 && (len(endKey) == 0 || bytes.Compare(NewMvccKey(req.EndKey), h.endKey) < 0) {
 			endKey = req.EndKey
 		}
-		pairs = h.mvccStore.Scan(req.GetStartKey(), endKey, int(req.GetLimit()), req.GetVersion(), h.isolationLevel)
+		pairs = h.mvccStore.Scan(req.GetStartKey(), endKey, int(req.GetLimit()), req.GetVersion(), h.isolationLevel, req.Context.ResolvedLocks)
 	} else {
 		// TiKV use range [end_key, start_key) for reverse scan.
 		// Should use the req.EndKey to check in region.
@@ -278,7 +280,7 @@ func (h *rpcHandler) handleKvScan(req *kvrpcpb.ScanRequest) *kvrpcpb.ScanRespons
 			endKey = req.StartKey
 		}
 
-		pairs = h.mvccStore.ReverseScan(req.EndKey, endKey, int(req.GetLimit()), req.GetVersion(), h.isolationLevel)
+		pairs = h.mvccStore.ReverseScan(req.EndKey, endKey, int(req.GetLimit()), req.GetVersion(), h.isolationLevel, req.Context.ResolvedLocks)
 	}
 
 	return &kvrpcpb.ScanResponse{
@@ -803,7 +805,7 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 		resp.Resp = handler.handleKvCheckTxnStatus(r)
 	case tikvrpc.CmdTxnHeartBeat:
 		r := req.TxnHeartBeat()
-		fmt.Println("run here ...  txn heartbeat", r.StartVersion, r.PrimaryLock)
+		// fmt.Println("run here ...  txn heartbeat", r.StartVersion, r.PrimaryLock)
 		if err := handler.checkRequest(reqCtx, r.Size()); err != nil {
 			resp.Resp = &kvrpcpb.TxnHeartBeatResponse{RegionError: err}
 			return resp, nil

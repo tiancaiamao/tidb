@@ -227,7 +227,7 @@ func (a *ExecStmt) Exec(ctx context.Context) (_ sqlexec.RecordSet, err error) {
 		}()
 	}
 
-	e, err := a.buildExecutor()
+	e, err := a.BuildExecutor()
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +509,7 @@ func (a *ExecStmt) handlePessimisticLockError(ctx context.Context, err error) (E
 		return nil, err
 	}
 	txn.SetOption(kv.SnapshotTS, newForUpdateTS)
-	e, err := a.buildExecutor()
+	e, err := a.BuildExecutor()
 	if err != nil {
 		return nil, err
 	}
@@ -547,8 +547,8 @@ type pessimisticTxn interface {
 	KeysNeedToLock() ([]kv.Key, error)
 }
 
-// buildExecutor build a executor from plan, prepared statement may need additional procedure.
-func (a *ExecStmt) buildExecutor() (Executor, error) {
+// BuildExecutor build a executor from plan, prepared statement may need additional procedure.
+func (a *ExecStmt) BuildExecutor() (Executor, error) {
 	ctx := a.Ctx
 	if _, ok := a.Plan.(*plannercore.Execute); !ok {
 		// Do not sync transaction for Execute statement, because the real optimization work is done in

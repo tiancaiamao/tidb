@@ -262,7 +262,7 @@ var innerResultLabel fmt.Stringer = stringutil.StringerStr("innerResult")
 // and append them to e.innerResult.
 func (e *HashJoinExec) fetchInnerRows(ctx context.Context, chkCh chan<- *chunk.Chunk, doneCh <-chan struct{}) {
 	defer close(chkCh)
-	e.innerResult = chunk.NewList(e.innerExec.base().retFieldTypes, e.initCap, e.maxChunkSize)
+	e.innerResult = chunk.NewList(e.innerExec.Base().retFieldTypes, e.initCap, e.maxChunkSize)
 	e.innerResult.GetMemTracker().AttachTo(e.memTracker)
 	e.innerResult.GetMemTracker().SetLabel(innerResultLabel)
 	var err error
@@ -270,7 +270,7 @@ func (e *HashJoinExec) fetchInnerRows(ctx context.Context, chkCh chan<- *chunk.C
 		if e.finished.Load().(bool) {
 			return
 		}
-		chk := chunk.NewChunkWithCapacity(e.innerExec.base().retFieldTypes, e.ctx.GetSessionVars().MaxChunkSize)
+		chk := chunk.NewChunkWithCapacity(e.innerExec.Base().retFieldTypes, e.ctx.GetSessionVars().MaxChunkSize)
 		err = e.innerExec.Next(ctx, chk)
 		if err != nil {
 			e.innerFinished <- errors.Trace(err)

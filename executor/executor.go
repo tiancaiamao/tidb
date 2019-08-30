@@ -88,7 +88,7 @@ type baseExecutor struct {
 }
 
 // base returns the baseExecutor of an executor, don't override this method!
-func (e *baseExecutor) base() *baseExecutor {
+func (e *baseExecutor) Base() *baseExecutor {
 	return e
 }
 
@@ -122,15 +122,19 @@ func (e *baseExecutor) Schema() *expression.Schema {
 	return e.schema
 }
 
+func (e *baseExecutor) Children() []Executor {
+	return e.children
+}
+
 // newFirstChunk creates a new chunk to buffer current executor's result.
 func newFirstChunk(e Executor) *chunk.Chunk {
-	base := e.base()
+	base := e.Base()
 	return chunk.New(base.retFieldTypes, base.initCap, base.maxChunkSize)
 }
 
 // retTypes returns all output column types.
 func retTypes(e Executor) []*types.FieldType {
-	base := e.base()
+	base := e.Base()
 	return base.retFieldTypes
 }
 
@@ -174,7 +178,7 @@ func newBaseExecutor(ctx sessionctx.Context, schema *expression.Schema, id fmt.S
 // return a batch of rows, other than a single row in Volcano.
 // NOTE: Executors must call "chk.Reset()" before appending their results to it.
 type Executor interface {
-	base() *baseExecutor
+	Base() *baseExecutor
 	Open(context.Context) error
 	Next(ctx context.Context, req *chunk.Chunk) error
 	Close() error
@@ -183,7 +187,7 @@ type Executor interface {
 
 // Next is a wrapper function on e.Next(), it handles some common codes.
 func Next(ctx context.Context, e Executor, req *chunk.Chunk) error {
-	base := e.base()
+	base := e.Base()
 	if base.runtimeStats != nil {
 		start := time.Now()
 		defer func() { base.runtimeStats.Record(time.Since(start), req.NumRows()) }()
