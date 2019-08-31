@@ -467,7 +467,7 @@ func (it *copIterator) open(ctx context.Context) {
 			clientHelper: clientHelper{
 				LockResolver:        it.store.lockResolver,
 				RegionRequestSender: sender,
-				resolved:            make(map[RegionVerID]resolvedLock),
+				resolved:            make(map[RegionVerID][]uint64),
 			},
 
 			memTracker: it.memTracker,
@@ -762,29 +762,33 @@ func (worker *copIteratorWorker) handleCopStreamResult(bo *Backoffer, rpcCtx *RP
 	}
 }
 
-// primary lock: start_ts =>  min_commit_ts
-type resolvedLock map[uint64]uint64
-
 type clientHelper struct {
 	*LockResolver
 	*RegionRequestSender
 
-	resolved map[RegionVerID]resolvedLock
+	resolved map[RegionVerID][]uint64
 }
 
-func (ch *clientHelper) ResolveLocks(bo *Backoffer, region RegionVerID, locks []*Lock) (msBeforeTxnExpired int64, err error) {
-	msBeforeTxnExpired, err = ch.LockResolver.ResolveLocks(bo, locks)
+func (ch *clientHelper) ResolveLocks(bo *Backoffer, region RegionVerID, locks []*Lock) (int64, error) {
+	msBeforeTxnExpired, resolvedLocks, err := ch.LockResolver.ResolveLocks(bo, locks)
 	if err != nil {
 		return msBeforeTxnExpired, err
 	}
-	if _, ok := ch.resolved[region]; !ok {
-		// FIXME:
+	if len(resolvedLocks) > 0 {
+		if locks, ok := ch.resolved[region]; !ok {
+			resolvedLocks = append(resolvedLocks, locks...)
+		}
+		ch.resolved[region] = resolvedLocks
+		// fmt.Println(" == coprocessor resolve locks adding", resolvedLocks)
 	}
-	return
+	return msBeforeTxnExpired, nil
 }
 
 func (ch *clientHelper) SendReqCtx(bo *Backoffer, req *tikvrpc.Request, regionID RegionVerID) (*tikvrpc.Response, *RPCContext, error) {
-	// FIXME:
+	if resolvedLocks, ok := ch.resolved[regionID]; ok {
+		req.Context.ResolvedLocks = resolvedLocks
+		// fmt.Println(" === sendReqctx using resolved locks ", resolvedLocks)
+	}
 	// req.Context.ResolvedLock = ch.resolved
 	return ch.RegionRequestSender.SendReqCtx(bo, req, regionID, ReadTimeoutMedium)
 }

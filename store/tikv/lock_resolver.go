@@ -266,7 +266,7 @@ func (lr *LockResolver) BatchResolveLocks(bo *Backoffer, locks []*Lock, loc Regi
 //    commit status.
 // 3) Send `ResolveLock` cmd to the lock's region to resolve all locks belong to
 //    the same transaction.
-func (lr *LockResolver) ResolveLocks(bo *Backoffer, locks []*Lock) (msBeforeTxnExpired int64, err error) {
+func (lr *LockResolver) ResolveLocks(bo *Backoffer, locks []*Lock) (msBeforeTxnExpired int64, resolved []uint64, err error) {
 	if len(locks) == 0 {
 		return
 	}
@@ -296,9 +296,10 @@ func (lr *LockResolver) ResolveLocks(bo *Backoffer, locks []*Lock) (msBeforeTxnE
 
 	currentTS, err := lr.store.GetOracle().GetTimestamp(bo.ctx)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
+	resolved = make([]uint64, 0, len(locks))
 	// TxnID -> []Region, record resolved Regions.
 	// TODO: Maybe put it in LockResolver and share by all txns.
 	cleanTxns := make(map[uint64]map[RegionVerID]struct{})
@@ -336,6 +337,7 @@ func (lr *LockResolver) ResolveLocks(bo *Backoffer, locks []*Lock) (msBeforeTxnE
 			} else if msBeforeTxnExpired == 0 || msBeforeLockExpired < msBeforeTxnExpired {
 				msBeforeTxnExpired = msBeforeLockExpired
 			}
+			resolved = append(resolved, l.TxnID)
 		}
 		fmt.Println("msBeforeTxnExpired = ", msBeforeTxnExpired)
 	}
