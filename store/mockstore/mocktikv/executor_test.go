@@ -1,0 +1,102 @@
+// Copyright 2019-present, PingCAP, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package mocktikv_test
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	. "github.com/pingcap/check"
+	"github.com/pingcap/errors"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/session"
+	"github.com/pingcap/tidb/store/mockstore"
+	"github.com/pingcap/tidb/store/mockstore/mocktikv"
+	"github.com/pingcap/tidb/tablecodec"
+	"github.com/pingcap/tidb/util/testkit"
+)
+
+var _ = Suite(&testExecutorSuite{})
+
+type testExecutorSuite struct {
+	cluster   *mocktikv.Cluster
+	store     kv.Storage
+	mvccStore mocktikv.MVCCStore
+	dom       *domain.Domain
+}
+
+func (s *testExecutorSuite) SetUpSuite(c *C) {
+	s.cluster = mocktikv.NewCluster()
+	mocktikv.BootstrapWithSingleStore(s.cluster)
+	s.mvccStore = mocktikv.MustNewMVCCStore()
+	store, err := mockstore.NewMockTikvStore(
+		mockstore.WithCluster(s.cluster),
+		mockstore.WithMVCCStore(s.mvccStore),
+	)
+	c.Assert(err, IsNil)
+	s.store = store
+	session.SetSchemaLease(0)
+	session.DisableStats4Test()
+	s.dom, err = session.BootstrapSession(s.store)
+	c.Assert(err, IsNil)
+}
+
+func (s *testExecutorSuite) TearDownSuite(c *C) {
+	s.dom.Close()
+	s.store.Close()
+}
+
+func (s *testExecutorSuite) TestResolvedLocks(c *C) {
+	tk := testkit.NewTestKit(c, s.store)
+	tk.MustExec("use test")
+	tk.MustExec("create table t (id int primary key, val int)")
+	dom := domain.GetDomain(tk.Se)
+	schema := dom.InfoSchema()
+	tbl, err := schema.TableByName(model.NewCIStr("test"), model.NewCIStr("t"))
+	c.Assert(err, IsNil)
+
+	tk.MustExec("insert into t values (1, 1)")
+
+	oracle := s.store.GetOracle()
+	tso, err := oracle.GetTimestamp(context.Background())
+	c.Assert(err, IsNil)
+
+	key := tablecodec.EncodeRowKeyWithHandle(tbl.Meta().ID, 1)
+	pairs := s.mvccStore.Scan(key, nil, 1, tso, kvrpcpb.IsolationLevel_SI, nil)
+	c.Assert(pairs, HasLen, 1)
+	c.Assert(pairs[0].Err, IsNil)
+	// fmt.Println("====", pairs[0])
+
+	// Simulate a large txn.
+	ttl := uint64(10 * time.Second)
+	mocktikv.MustPrewriteOK(c, s.mvccStore, mocktikv.PutMutations("primary", "value"), "primary", tso, ttl)
+	mocktikv.MustPrewriteOK(c, s.mvccStore, mocktikv.PutMutations(string(key), "value"), "primary", tso, ttl)
+
+	// Simulate the action of reading meet the lock of a large txn.
+	// The lock of the large transaction should not block read.
+	// The first time, this query should meet a lock on the secondary key, then resolve lock.
+	// After that, the query should read the previous version.
+	tk.MustQuery("select * from t").Check(testkit.Rows("1 1"))
+
+	// And check the large txn is still alive.
+	pairs = s.mvccStore.Scan([]byte("primary"), nil, 1, tso, kvrpcpb.IsolationLevel_SI, nil)
+	c.Assert(pairs, HasLen, 1)
+	lock, ok := errors.Cause(pairs[0].Err).(*mocktikv.ErrLocked)
+	fmt.Println(lock)
+	c.Assert(ok, IsTrue)
+}
