@@ -175,6 +175,7 @@ type twoPhaseCommitter struct {
 	txnSize          int
 	noNeedCommitKeys map[string]struct{}
 
+	once        sync.Once
 	primaryKey  []byte
 	forUpdateTS uint64
 
@@ -408,7 +409,9 @@ func do(bo *Backoffer, c *twoPhaseCommitter, action twoPhaseCommitAction) error 
 	}
 	// Set the primary key.
 	batch.isPrimary = true
-	c.primaryKey = batch.mutations.keys[0]
+	c.once.Do(func() {
+		c.primaryKey = batch.mutations.keys[0]
+	})
 
 	// Optimize for the simple case.
 	if noMore {

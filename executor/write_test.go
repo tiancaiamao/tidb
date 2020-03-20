@@ -2333,6 +2333,7 @@ func (s *testBypassSuite) TestLatch(c *C) {
 	// TODO: Latch require all mutations to be known.
 	// In the new 2PC mode, mutation is a stream and not known.
 	// c.Assert(kv.ErrWriteConflictInTiDB.Equal(err), IsTrue, Commentf(err.Error()))
+	c.Assert(err, NotNil)
 
 	tk1.MustExec("set @@tidb_disable_txn_auto_retry = 0")
 	tk1.MustExec("update t set id = id + 1")
