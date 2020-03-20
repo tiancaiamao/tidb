@@ -240,6 +240,9 @@ func (txn *tikvTxn) Commit(ctx context.Context) error {
 		if err := committer.initSimple(); err != nil {
 			return errors.Trace(err)
 		}
+		if txn.Size() == 0 && len(txn.lockKeys) == 0 {
+			return nil
+		}
 	}
 
 	defer func() {

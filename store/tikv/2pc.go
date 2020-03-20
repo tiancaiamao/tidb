@@ -440,12 +440,12 @@ func (c *twoPhaseCommitter) takeBatchMutationFromIterator(bo *Backoffer, iter, l
 			}
 		}
 
+		if err := currIter.Next(); err != nil {
+			return nil, false, errors.Trace(err)
+		}
 		if batchSize >= txnCommitBatchSize {
 			noMore = false
 			break
-		}
-		if err := currIter.Next(); err != nil {
-			return nil, false, errors.Trace(err)
 		}
 	}
 	if lastLoc == nil {
@@ -479,7 +479,13 @@ func (c *twoPhaseCommitter) getOpByKeyValue(k kv.Key, v []byte) (op pb.Op, skip 
 		// delete-your-writes keys in optimistic txn need check not exists in prewrite-phase
 		// due to `Op_CheckNotExists` doesn't prewrite lock, so mark those keys should not be used in commit-phase.
 		op = pb.Op_CheckNotExists
-		c.noNeedCommitKeys[string(k)] = struct{}{}
+		// Prewrite visit here for the first time, add the keys to the map.
+		// Commit & Cleanup visit here for the second time, mark as skip.
+		if _, ok := c.noNeedCommitKeys[string(k)]; !ok {
+			c.noNeedCommitKeys[string(k)] = struct{}{}
+		} else {
+			skip = true
+		}
 	} else {
 		// normal delete keys in optimistic txn can be delete without not exists checking
 		// delete-your-writes keys in pessimistic txn can ensure must be no exists so can directly delete them
@@ -573,6 +579,7 @@ func (c *twoPhaseCommitter) initSimple() error {
 			zap.Error(err))
 		return errors.Trace(err)
 	}
+	c.noNeedCommitKeys = make(map[string]struct{})
 
 	commitDetail := &execdetails.CommitDetails{}
 	metrics.TiKVTxnWriteKVCountHistogram.Observe(float64(commitDetail.WriteKeys))
