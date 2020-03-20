@@ -102,8 +102,8 @@ func (s *testTableSuite) TestStmtSummaryTable(c *C) {
 
 	// Test INSERT
 	tk.MustExec("insert into t values(1, 'a')")
-	tk.MustExec("insert into t    values(2, 'b')")
-	tk.MustExec("insert into t VALUES(3, 'c')")
+	tk.MustExec("insert into t values(2, 'b')")
+	tk.MustExec("insert into t values(3, 'c')")
 	tk.MustExec("/**/insert into t values(4, 'd')")
 	tk.MustQuery(`select stmt_type, schema_name, table_names, index_names, exec_count, cop_task_num, avg_total_keys,
 		max_total_keys, avg_processed_keys, max_processed_keys, avg_write_keys, max_write_keys, avg_prewrite_regions,
