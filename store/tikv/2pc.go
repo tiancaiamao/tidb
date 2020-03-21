@@ -1523,12 +1523,6 @@ func (c *twoPhaseCommitter) execute(ctx context.Context) (err error) {
 	err = doPrewrite(prewriteBo, c)
 	commitDetail := c.getDetail()
 	commitDetail.PrewriteTime = time.Since(start)
-	if prewriteBo.totalSleep > 0 {
-		atomic.AddInt64(&commitDetail.CommitBackoffTime, int64(prewriteBo.totalSleep)*int64(time.Millisecond))
-		commitDetail.Mu.Lock()
-		commitDetail.Mu.BackoffTypes = append(commitDetail.Mu.BackoffTypes, prewriteBo.types...)
-		commitDetail.Mu.Unlock()
-	}
 	if binlogChan != nil {
 		startWaitBinlog := time.Now()
 		binlogWriteResult := <-binlogChan
@@ -1546,6 +1540,12 @@ func (c *twoPhaseCommitter) execute(ctx context.Context) (err error) {
 			zap.Error(err),
 			zap.Uint64("txnStartTS", c.startTS))
 		return errors.Trace(err)
+	}
+	if prewriteBo.totalSleep > 0 {
+		atomic.AddInt64(&commitDetail.CommitBackoffTime, int64(prewriteBo.totalSleep)*int64(time.Millisecond))
+		commitDetail.Mu.Lock()
+		commitDetail.Mu.BackoffTypes = append(commitDetail.Mu.BackoffTypes, prewriteBo.types...)
+		commitDetail.Mu.Unlock()
 	}
 
 	// strip check_not_exists keys that no need to commit.
