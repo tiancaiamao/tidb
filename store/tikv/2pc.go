@@ -358,6 +358,9 @@ func (j *jobControl) sendBatchMutationToWorker(bo *Backoffer, b *batchMutations,
 }
 
 func (j *jobControl) runWorker(bo *Backoffer, c *twoPhaseCommitter, action twoPhaseCommitAction) {
+	var cancel context.CancelFunc
+	bo, cancel = bo.Fork()
+	defer cancel()
 	var err error
 	for batch := range j.taskCh {
 		err = action.handleSingleBatch(c, bo, batch)
