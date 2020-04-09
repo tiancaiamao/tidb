@@ -248,7 +248,7 @@ func (txn *tikvTxn) Commit(ctx context.Context) error {
 	}
 	defer committer.ttlManager.close()
 
-	if txn.IsPessimistic() || committer.shouldWriteBinlog() {
+	if  committer.shouldWriteBinlog() {
 		if err := committer.initKeysAndMutations(); err != nil {
 			return errors.Trace(err)
 		}

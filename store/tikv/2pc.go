@@ -404,7 +404,20 @@ func do(bo *Backoffer, c *twoPhaseCommitter, action twoPhaseCommitAction) error 
 	}
 	defer iter.Close()
 	l := lockIter{lockKeys: txn.lockKeys}
-	bi := batchIter{iter: iter, lockIter: &l}
+	bi := batchIter{iter: iter, lockIter: &l, batchIterState: batchIterNormal}
+	if c.isPessimistic && len(c.primaryKey) > 0 {
+		primaryVal, err := txn.us.GetMemBuffer().Get(bo.ctx, c.primaryKey)
+		if err == nil {
+			bi.primaryVal = primaryVal
+		}
+		if err != nil {
+			if !kv.IsErrNotFound(err) {
+				return err
+			}
+		}
+		bi.primaryKey = c.primaryKey
+		bi.batchIterState = batchIterUsePrimary
+	}
 
 	// Take the first batch.
 	batch, noMore, err := c.takeBatchMutationFromIterator(bo, action, &bi)
@@ -414,7 +427,9 @@ func do(bo *Backoffer, c *twoPhaseCommitter, action twoPhaseCommitAction) error 
 	// Set the primary key.
 	batch.isPrimary = true
 	c.once.Do(func() {
-		c.primaryKey = batch.mutations.keys[0]
+		if len(c.primaryKey) == 0 {
+			c.primaryKey = batch.mutations.keys[0]
+		}
 	})
 
 	// Optimize for the simple case.
@@ -451,10 +466,23 @@ func (c *twoPhaseCommitter) takeBatchMutationFromIterator(bo *Backoffer, action 
 	}, noMore, nil
 }
 
+type batchIterState uint8
+
+const (
+	batchIterNormal batchIterState = iota
+	batchIterUsePrimary
+	batchIterSkipPrimary
+)
+
 type batchIter struct {
 	lastLoc  *KeyLocation
 	iter     kv.Iterator
 	lockIter kv.Iterator
+
+	// If primary key has beed defined (in the pessimistic txn case), it should be the first one.
+	batchIterState
+	primaryKey kv.Key
+	primaryVal []byte
 
 	writeSize   int
 	writeKeys   int
@@ -462,6 +490,26 @@ type batchIter struct {
 }
 
 func takeBatchMutationFromIterator(bo *Backoffer, bi *batchIter, c *twoPhaseCommitter) (*KeyLocation, committerMutations, bool, error) {
+	if bi.batchIterState == batchIterUsePrimary {
+		loc, err := c.store.regionCache.LocateKey(bo, bi.primaryKey)
+		if err != nil {
+			return nil, committerMutations{}, false, err
+		}
+		mutations := newCommiterMutations(1)
+		if bi.primaryVal == nil {
+			mutations.push(pb.Op_Lock, bi.primaryKey, nil, c.isPessimistic)
+		} else {
+			if op, skip := c.getOpByKeyValue(bi.primaryKey, bi.primaryVal); !skip {
+				mutations.push(op, bi.primaryKey, bi.primaryVal, c.isPessimistic)
+			} else {
+				panic("should never run here!!!")
+			}
+		}
+
+		bi.batchIterState = batchIterSkipPrimary
+		return loc, mutations, false, nil
+	}
+
 	var err error
 	hint := c.txn.Len()
 	if hint > txnCommitBatchSize {
@@ -489,18 +537,22 @@ func takeBatchMutationFromIterator(bo *Backoffer, bi *batchIter, c *twoPhaseComm
 				break
 			}
 		}
+		if equal {
+			if bi.lockIter.Next() != nil {
+				// No error, pass golint check
+			}
+		}
 
 		batchSize = batchSize + len(k) + len(v)
 
-		if currIter == bi.lockIter {
-			mutations.push(pb.Op_Lock, k, nil, c.isPessimistic)
+		if bi.batchIterState == batchIterSkipPrimary && bytes.Equal(bi.primaryKey, k) {
+			// Skip this one because it's already done
 		} else {
-			if op, skip := c.getOpByKeyValue(k, v); !skip {
-				mutations.push(op, k, v, c.isPessimistic)
-			}
-			if equal {
-				if bi.lockIter.Next() != nil {
-					// No error, pass golint check
+			if currIter == bi.lockIter {
+				mutations.push(pb.Op_Lock, k, nil, c.isPessimistic)
+			} else {
+				if op, skip := c.getOpByKeyValue(k, v); !skip {
+					mutations.push(op, k, v, equal && c.isPessimistic)
 				}
 			}
 		}
@@ -646,6 +698,7 @@ func (c *twoPhaseCommitter) initSimple() error {
 	c.priority = getTxnPriority(txn)
 	c.syncLog = getTxnSyncLog(txn)
 	c.setDetail(commitDetail)
+
 	return nil
 }
 
