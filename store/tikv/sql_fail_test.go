@@ -106,9 +106,9 @@ func TestMain(m *testing.M) {
 func (s *testSQLSuite) TestCoprocessorStreamRecvTimeout(c *C) {
 	tk := testkit.NewTestKit(c, s.store)
 	tk.MustExec("use test")
-	tk.MustExec("create table t (id int)")
+	tk.MustExec("create table t_cop_stream_recv_timeout (id int)")
 	for i := 0; i < 200; i++ {
-		tk.MustExec(fmt.Sprintf("insert into t values (%d)", i))
+		tk.MustExec(fmt.Sprintf("insert into t_cop_stream_recv_timeout values (%d)", i))
 	}
 	tk.Se.GetSessionVars().EnableStreaming = true
 
@@ -131,7 +131,7 @@ func (s *testSQLSuite) TestCoprocessorStreamRecvTimeout(c *C) {
 			enable = false
 		})
 
-		res, err := tk.Se.Execute(ctx, "select * from t")
+		res, err := tk.Se.Execute(ctx, "select * from t_cop_stream_recv_timeout")
 		c.Assert(err, IsNil)
 
 		req := res[0].NewChunk()
@@ -171,7 +171,7 @@ func (s *testSQLSuite) TestCoprocessorStreamRecvTimeout(c *C) {
 			enable = false
 		})
 
-		res, err := tk.Se.Execute(ctx, "select * from t")
+		res, err := tk.Se.Execute(ctx, "select * from t_cop_stream_recv_timeout")
 		c.Assert(err, IsNil)
 
 		req := res[0].NewChunk()
