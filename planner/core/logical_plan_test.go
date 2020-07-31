@@ -888,6 +888,12 @@ func (s *testPlanSuite) TestVisitInfo(c *C) {
 		ans []visitInfo
 	}{
 		{
+			sql: "select a from t",
+			ans: []visitInfo{
+				{mysql.SelectPriv, "test", "t", "a", nil},
+			},
+		},
+		{
 			sql: "insert into t (a) values (1)",
 			ans: []visitInfo{
 				{mysql.InsertPriv, "test", "t", "", nil},
@@ -897,41 +903,54 @@ func (s *testPlanSuite) TestVisitInfo(c *C) {
 			sql: "delete from t where a = 1",
 			ans: []visitInfo{
 				{mysql.DeletePriv, "test", "t", "", nil},
-				{mysql.SelectPriv, "test", "t", "", nil},
+				// {mysql.SelectPriv, "test", "t", "", nil},
 			},
 		},
 		{
 			sql: "delete from a1 using t as a1 inner join t as a2 where a1.a = a2.a",
 			ans: []visitInfo{
 				{mysql.DeletePriv, "test", "t", "", nil},
-				{mysql.SelectPriv, "test", "t", "", nil},
+				// {mysql.SelectPriv, "test", "t", "", nil},
 			},
 		},
 		{
 			sql: "update t set a = 7 where a = 1",
 			ans: []visitInfo{
-				{mysql.UpdatePriv, "test", "t", "", nil},
+				{mysql.UpdatePriv, "test", "t", "a", nil},
 				{mysql.SelectPriv, "test", "t", "", nil},
 			},
 		},
 		{
 			sql: "update t, (select * from t) a1 set t.a = a1.a;",
 			ans: []visitInfo{
-				{mysql.UpdatePriv, "test", "t", "", nil},
+				{mysql.SelectPriv, "test", "t", "a", nil},
+				{mysql.SelectPriv, "test", "t", "b", nil},
+				{mysql.SelectPriv, "test", "t", "c", nil},
+				{mysql.SelectPriv, "test", "t", "d", nil},
+				{mysql.SelectPriv, "test", "t", "e", nil},
+				{mysql.SelectPriv, "test", "t", "c_str", nil},
+				{mysql.SelectPriv, "test", "t", "d_str", nil},
+				{mysql.SelectPriv, "test", "t", "e_str", nil},
+				{mysql.SelectPriv, "test", "t", "f", nil},
+				{mysql.SelectPriv, "test", "t", "g", nil},
+				{mysql.SelectPriv, "test", "t", "h", nil},
+				{mysql.SelectPriv, "test", "t", "i_date", nil},
 				{mysql.SelectPriv, "test", "t", "", nil},
+				{mysql.UpdatePriv, "test", "t", "a", nil},
 			},
 		},
 		{
 			sql: "update t a1 set a1.a = a1.a + 1",
 			ans: []visitInfo{
-				{mysql.UpdatePriv, "test", "t", "", nil},
+				{mysql.UpdatePriv, "test", "t", "a", nil},
 				{mysql.SelectPriv, "test", "t", "", nil},
 			},
 		},
 		{
 			sql: "select a, sum(e) from t group by a",
 			ans: []visitInfo{
-				{mysql.SelectPriv, "test", "t", "", nil},
+				{mysql.SelectPriv, "test", "t", "e", nil},
+				{mysql.SelectPriv, "test", "t", "a", nil},
 			},
 		},
 		{
