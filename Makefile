@@ -31,7 +31,7 @@ GOBUILDCOVERAGE := GOPATH=$(GOPATH) cd tidb-server; $(GO) test -coverpkg="../...
 GOTEST          := $(GO) test -p $(P)
 OVERALLS        := GO111MODULE=on overalls
 STATICCHECK     := GO111MODULE=on staticcheck
-TIDB_EDITION    ?= Community
+TIDB_EDITION    ?= YiDB
 
 ARCH      := "`uname -s`"
 LINUX     := "Linux"
