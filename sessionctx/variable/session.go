@@ -594,6 +594,8 @@ type SessionVars struct {
 	// WindowingUseHighPrecision determines whether to compute window operations without loss of precision.
 	// see https://dev.mysql.com/doc/refman/8.0/en/window-function-optimization.html for more details.
 	WindowingUseHighPrecision bool
+
+	TemporaryTable map[string]string
 }
 
 // PreparedParams contains the parameters of the current prepared statement when executing it.
