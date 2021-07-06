@@ -66,6 +66,7 @@ type LazyTxn struct {
 	// txnInfo provides information about the transaction in a thread-safe way. To atomically replace the struct,
 	// it's stored as an unsafe.Pointer.
 	txnInfo unsafe.Pointer
+	cache txninfo.TxnInfo
 }
 
 // GetTableInfo returns the cached index name.
@@ -136,7 +137,7 @@ func (txn *LazyTxn) recreateTxnInfo(
 	currentSQLDigest string,
 	allSQLDigests []string,
 ) {
-	info := &txninfo.TxnInfo{
+	txn.cache = txninfo.TxnInfo{
 		StartTS:          startTS,
 		State:            state,
 		EntriesCount:     entriesCount,
@@ -144,6 +145,7 @@ func (txn *LazyTxn) recreateTxnInfo(
 		CurrentSQLDigest: currentSQLDigest,
 		AllSQLDigests:    allSQLDigests,
 	}
+	info := &txn.cache
 	txn.storeTxnInfo(info)
 }
 
@@ -283,7 +285,8 @@ func (txn *LazyTxn) onStmtStart(currentSQLDigest string) {
 		return
 	}
 
-	info := txn.getTxnInfo().ShallowClone()
+	// info := txn.getTxnInfo().ShallowClone()
+	info := txn.getTxnInfo()
 	info.CurrentSQLDigest = currentSQLDigest
 	// Keeps at most 50 history sqls to avoid consuming too much memory.
 	const maxTransactionStmtHistory int = 50
@@ -295,7 +298,8 @@ func (txn *LazyTxn) onStmtStart(currentSQLDigest string) {
 }
 
 func (txn *LazyTxn) onStmtEnd() {
-	info := txn.getTxnInfo().ShallowClone()
+	// info := txn.getTxnInfo().ShallowClone()
+	info := txn.getTxnInfo()
 	info.CurrentSQLDigest = ""
 	txn.storeTxnInfo(info)
 }

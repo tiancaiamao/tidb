@@ -558,8 +558,9 @@ func UnregisterSysVar(name string) {
 
 // Clone deep copies the sysvar struct to avoid a race
 func (sv *SysVar) Clone() *SysVar {
-	dst := *sv
-	return &dst
+	// dst := *sv
+	// return &dst
+	return sv
 }
 
 // GetSysVar returns sys var info for name as key.

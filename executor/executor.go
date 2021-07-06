@@ -1656,30 +1656,32 @@ func (e *UnionExec) Close() error {
 // Before every execution, we must clear statement context.
 func ResetContextOfStmt(ctx sessionctx.Context, s ast.StmtNode) (err error) {
 	vars := ctx.GetSessionVars()
-	sc := &stmtctx.StatementContext{
-		TimeZone:      vars.Location(),
-		MemTracker:    memory.NewTracker(memory.LabelForSQLText, vars.MemQuotaQuery),
-		DiskTracker:   disk.NewTracker(memory.LabelForSQLText, -1),
-		TaskID:        stmtctx.AllocateTaskID(),
-		CTEStorageMap: map[int]*CTEStorages{},
-	}
+	sc := &vars.StatementContext
+	// sc := &stmtctx.StatementContext{
+	sc.TimeZone =      vars.Location()
+	// MemTracker:    memory.NewTracker(memory.LabelForSQLText, vars.MemQuotaQuery),
+	// DiskTracker:   disk.NewTracker(memory.LabelForSQLText, -1),
+	sc.TaskID =        stmtctx.AllocateTaskID()
+	// CTEStorageMap: map[int]*CTEStorages{},
+	// }
+	sc.MemTracker = &sc.CacheMemTracker
 	sc.MemTracker.AttachToGlobalTracker(GlobalMemoryUsageTracker)
 	globalConfig := config.GetGlobalConfig()
 	if globalConfig.OOMUseTmpStorage && GlobalDiskUsageTracker != nil {
 		sc.DiskTracker.AttachToGlobalTracker(GlobalDiskUsageTracker)
 	}
-	switch globalConfig.OOMAction {
-	case config.OOMActionCancel:
-		action := &memory.PanicOnExceed{ConnID: ctx.GetSessionVars().ConnectionID}
-		action.SetLogHook(domain.GetDomain(ctx).ExpensiveQueryHandle().LogOnQueryExceedMemQuota)
-		sc.MemTracker.SetActionOnExceed(action)
-	case config.OOMActionLog:
-		fallthrough
-	default:
-		action := &memory.LogOnExceed{ConnID: ctx.GetSessionVars().ConnectionID}
-		action.SetLogHook(domain.GetDomain(ctx).ExpensiveQueryHandle().LogOnQueryExceedMemQuota)
-		sc.MemTracker.SetActionOnExceed(action)
-	}
+	// switch globalConfig.OOMAction {
+	// case config.OOMActionCancel:
+	// 	action := &memory.PanicOnExceed{ConnID: ctx.GetSessionVars().ConnectionID}
+	// 	action.SetLogHook(domain.GetDomain(ctx).ExpensiveQueryHandle().LogOnQueryExceedMemQuota)
+	// 	sc.MemTracker.SetActionOnExceed(action)
+	// case config.OOMActionLog:
+	// 	fallthrough
+	// default:
+	// 	action := &memory.LogOnExceed{ConnID: ctx.GetSessionVars().ConnectionID}
+	// 	action.SetLogHook(domain.GetDomain(ctx).ExpensiveQueryHandle().LogOnQueryExceedMemQuota)
+	// 	sc.MemTracker.SetActionOnExceed(action)
+	// }
 	if execStmt, ok := s.(*ast.ExecuteStmt); ok {
 		prepareStmt, err := planner.GetPreparedStmt(execStmt, vars)
 		if err != nil {
@@ -1806,7 +1808,7 @@ func ResetContextOfStmt(ctx sessionctx.Context, s ast.StmtNode) (err error) {
 		sc.RuntimeStatsColl = execdetails.NewRuntimeStatsColl()
 	}
 
-	sc.TblInfo2UnionScan = make(map[*model.TableInfo]bool)
+	// sc.TblInfo2UnionScan = make(map[*model.TableInfo]bool)
 	errCount, warnCount := vars.StmtCtx.NumErrorWarnings()
 	vars.SysErrorCount = errCount
 	vars.SysWarningCount = warnCount

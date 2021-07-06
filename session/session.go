@@ -52,6 +52,7 @@ import (
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/errno"
 	"github.com/pingcap/tidb/executor"
+	"github.com/pingcap/tidb/planner/core"
 	"github.com/pingcap/tidb/infoschema"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta"
@@ -222,6 +223,11 @@ type session struct {
 
 	// indexUsageCollector collects index usage information.
 	idxUsageCollector *handle.SessionIndexUsageCollector
+
+
+	executor.ExecStmt
+	core.PlanBuilder
+	cacheExecuteStmt ast.ExecuteStmt
 }
 
 // AddTableLock adds table lock to the session lock map.
@@ -1778,18 +1784,19 @@ func (s *session) cachedPlanExec(ctx context.Context,
 	stmtID uint32, prepareStmt *plannercore.CachedPrepareStmt, args []types.Datum) (sqlexec.RecordSet, error) {
 	prepared := prepareStmt.PreparedAst
 	// compile ExecStmt
-	execAst := &ast.ExecuteStmt{ExecID: stmtID}
+	s.cacheExecuteStmt = ast.ExecuteStmt{ExecID: stmtID}
+	execAst := &s.cacheExecuteStmt
 	if err := executor.ResetContextOfStmt(s, execAst); err != nil {
 		return nil, err
 	}
 	execAst.BinaryArgs = args
-	execPlan, err := planner.OptimizeExecStmt(ctx, s, execAst, is)
+	execPlan, err := planner.OptimizeExecStmt(ctx, s, execAst, is, &s.PlanBuilder)
 	if err != nil {
 		return nil, err
 	}
 
 	stmtCtx := s.GetSessionVars().StmtCtx
-	stmt := &executor.ExecStmt{
+	s.ExecStmt = executor.ExecStmt{
 		GoCtx:       ctx,
 		InfoSchema:  is,
 		Plan:        execPlan,
@@ -1800,6 +1807,7 @@ func (s *session) cachedPlanExec(ctx context.Context,
 		Ti:          &executor.TelemetryInfo{},
 		SnapshotTS:  snapshotTS,
 	}
+	stmt := &s.ExecStmt
 	compileDuration := time.Since(s.sessionVars.StartTime)
 	sessionExecuteCompileDurationGeneral.Observe(compileDuration.Seconds())
 	s.GetSessionVars().DurationCompile = compileDuration

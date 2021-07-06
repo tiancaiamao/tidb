@@ -227,10 +227,10 @@ func (a *ExecStmt) PointGet(ctx context.Context, is infoschema.InfoSchema) (*rec
 	}
 	ctx = a.setPlanLabelForTopSQL(ctx)
 	startTs := uint64(math.MaxUint64)
-	err := a.Ctx.InitTxnWithStartTS(startTs)
-	if err != nil {
-		return nil, err
-	}
+	// err := a.Ctx.InitTxnWithStartTS(startTs)
+	// if err != nil {
+	// 	return nil, err
+	// }
 	a.Ctx.GetSessionVars().StmtCtx.Priority = kv.PriorityHigh
 
 	// try to reuse point get executor
@@ -255,7 +255,7 @@ func (a *ExecStmt) PointGet(ctx context.Context, is infoschema.InfoSchema) (*rec
 		a.PsStmt.Executor = newExecutor
 	}
 	pointExecutor := a.PsStmt.Executor.(*PointGetExecutor)
-	if err = pointExecutor.Open(ctx); err != nil {
+	if err := pointExecutor.Open(ctx); err != nil {
 		terror.Call(pointExecutor.Close)
 		return nil, err
 	}
@@ -443,12 +443,12 @@ func (a *ExecStmt) handleNoDelay(ctx context.Context, e Executor, isPessimistic 
 		// done in the `defer` function. If the rs is not nil, the detachment will be done in
 		// `rs.Close` in `handleStmt`
 		if sc != nil && rs == nil {
-			if sc.MemTracker != nil {
+			// if sc.MemTracker != nil {
 				sc.MemTracker.DetachFromGlobalTracker()
-			}
-			if sc.DiskTracker != nil {
+			// }
+			// if sc.DiskTracker != nil {
 				sc.DiskTracker.DetachFromGlobalTracker()
-			}
+			// }
 		}
 	}()
 
@@ -914,12 +914,12 @@ func (a *ExecStmt) CloseRecordSet(txnStartTS uint64, lastErr error) {
 	a.logAudit()
 	// Detach the Memory and disk tracker for the previous stmtCtx from GlobalMemoryUsageTracker and GlobalDiskUsageTracker
 	if stmtCtx := a.Ctx.GetSessionVars().StmtCtx; stmtCtx != nil {
-		if stmtCtx.DiskTracker != nil {
+		// if stmtCtx.DiskTracker != nil {
 			stmtCtx.DiskTracker.DetachFromGlobalTracker()
-		}
-		if stmtCtx.MemTracker != nil {
+		// }
+		// if stmtCtx.MemTracker != nil {
 			stmtCtx.MemTracker.DetachFromGlobalTracker()
-		}
+		// }
 	}
 }
 

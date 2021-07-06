@@ -136,7 +136,8 @@ type StatementContext struct {
 	Priority         mysql.PriorityEnum
 	NotFillCache     bool
 	MemTracker       *memory.Tracker
-	DiskTracker      *disk.Tracker
+	CacheMemTracker       memory.Tracker
+	DiskTracker      disk.Tracker
 	IsTiFlash        atomic2.Bool
 	RuntimeStatsColl *execdetails.RuntimeStatsColl
 	TableIDs         []int64

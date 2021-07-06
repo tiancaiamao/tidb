@@ -852,6 +852,8 @@ type SessionVars struct {
 
 	// EnableGlobalTemporaryTable indicates whether to enable global temporary table
 	EnableGlobalTemporaryTable bool
+
+	stmtctx.StatementContext
 }
 
 // AllocMPPTaskID allocates task id for mpp tasks. It will reset the task id if the query's
@@ -1415,7 +1417,7 @@ func (s *SessionVars) SetStmtVar(name string, val string) error {
 
 // ClearStmtVars clear temporarily system variables.
 func (s *SessionVars) ClearStmtVars() {
-	s.stmtVars = make(map[string]string)
+	// s.stmtVars = make(map[string]string)
 }
 
 // SetSystemVar sets the value of a system variable for session scope.

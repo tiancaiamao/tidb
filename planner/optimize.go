@@ -412,10 +412,14 @@ func useMaxTS(ctx sessionctx.Context, p plannercore.Plan) bool {
 // this is a short path ONLY does things filling prepare related params
 // for point select like plan which does not need extra things
 func OptimizeExecStmt(ctx context.Context, sctx sessionctx.Context,
-	execAst *ast.ExecuteStmt, is infoschema.InfoSchema) (plannercore.Plan, error) {
+	execAst *ast.ExecuteStmt, is infoschema.InfoSchema, builder *core.PlanBuilder) (plannercore.Plan, error) {
 	defer trace.StartRegion(ctx, "Optimize").End()
 	var err error
-	builder, _ := plannercore.NewPlanBuilder(sctx, is, nil)
+	// builder, _ := plannercore.NewPlanBuilder(sctx, is, nil)
+
+	sctx.GetSessionVars().PlannerSelectBlockAsName = nil
+	// var builder core.PlanBuilder
+	core.InitPlanBuilder(builder, sctx, is)
 	p, err := builder.Build(ctx, execAst)
 	if err != nil {
 		return nil, err

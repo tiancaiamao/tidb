@@ -620,6 +620,17 @@ func NewPlanBuilder(sctx sessionctx.Context, is infoschema.InfoSchema, processor
 	}, savedBlockNames
 }
 
+
+func InitPlanBuilder(builder *PlanBuilder, sctx sessionctx.Context, is infoschema.InfoSchema) {
+	builder.ctx =                 sctx
+	builder.is =                  is
+	builder.outerCTEs=           make([]*cteInfo, 0)
+	builder.colMapper=           make(map[*ast.ColumnNameExpr]int)
+	builder.handleHelper=        &handleColHelper{id2HandleMapStack: make([]map[int64][]HandleCols, 0)}
+	builder.correlatedAggMapper= make(map[*ast.AggregateFuncExpr]*expression.CorrelatedColumn)
+	builder.isForUpdateRead=     sctx.GetSessionVars().IsPessimisticReadConsistency()
+}
+
 // Build builds the ast node to a Plan.
 func (b *PlanBuilder) Build(ctx context.Context, node ast.Node) (Plan, error) {
 	b.optFlag |= flagPrunColumns

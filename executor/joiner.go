@@ -14,6 +14,8 @@
 package executor
 
 import (
+	"fmt"
+
 	"github.com/pingcap/tidb/expression"
 	plannercore "github.com/pingcap/tidb/planner/core"
 	"github.com/pingcap/tidb/sessionctx"
@@ -374,6 +376,10 @@ func (j *semiJoiner) tryToMatchInners(outer chunk.Row, inners chunk.Iterator, ch
 
 	for inner := inners.Current(); inner != inners.End(); inner = inners.Next() {
 		j.makeShallowJoinRow(j.outerIsRight, inner, outer)
+
+
+		r := j.shallowRow.ToRow()
+		fmt.Println(r)
 
 		// For SemiJoin, we can safely treat null result of join conditions as false,
 		// so we ignore the nullness returned by EvalBool here.

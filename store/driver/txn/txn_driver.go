@@ -44,7 +44,10 @@ func NewTiKVTxn(txn *tikv.KVTxn) kv.Transaction {
 	totalLimit := atomic.LoadUint64(&kv.TxnTotalSizeLimit)
 	txn.GetUnionStore().SetEntrySizeLimit(entryLimit, totalLimit)
 
-	return &tikvTxn{txn, make(map[int64]*model.TableInfo)}
+	// return &tikvTxn{txn, make(map[int64]*model.TableInfo)}
+	return &tikvTxn{
+		KVTxn: txn,
+	}
 }
 
 func (txn *tikvTxn) GetTableInfo(id int64) *model.TableInfo {
@@ -52,6 +55,9 @@ func (txn *tikvTxn) GetTableInfo(id int64) *model.TableInfo {
 }
 
 func (txn *tikvTxn) CacheTableInfo(id int64, info *model.TableInfo) {
+	if txn.idxNameCache == nil {
+		txn.idxNameCache = make(map[int64]*model.TableInfo)
+	}
 	txn.idxNameCache[id] = info
 }
 

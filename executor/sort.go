@@ -90,7 +90,7 @@ func (e *SortExec) Open(ctx context.Context) error {
 		e.memTracker = memory.NewTracker(e.id, -1)
 		e.memTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.MemTracker)
 		e.diskTracker = memory.NewTracker(e.id, -1)
-		e.diskTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.DiskTracker)
+		e.diskTracker.AttachTo(&e.ctx.GetSessionVars().StmtCtx.DiskTracker)
 	}
 	e.partitionList = e.partitionList[:0]
 	return e.children[0].Open(ctx)

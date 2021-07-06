@@ -666,7 +666,7 @@ var defaultConf = Config{
 		AllowsExpressionIndex: false,
 		EnableGlobalKill:      false,
 	},
-	EnableCollectExecutionInfo: true,
+	EnableCollectExecutionInfo: false,
 	EnableTelemetry:            true,
 	Labels:                     make(map[string]string),
 	EnableGlobalIndex:          false,

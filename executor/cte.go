@@ -107,7 +107,7 @@ func (e *CTEExec) Open(ctx context.Context) (err error) {
 	e.memTracker = memory.NewTracker(e.id, -1)
 	e.diskTracker = disk.NewTracker(e.id, -1)
 	e.memTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.MemTracker)
-	e.diskTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.DiskTracker)
+	e.diskTracker.AttachTo(&e.ctx.GetSessionVars().StmtCtx.DiskTracker)
 
 	if e.recursiveExec != nil {
 		if err = e.recursiveExec.Open(ctx); err != nil {

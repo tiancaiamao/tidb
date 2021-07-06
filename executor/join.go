@@ -14,9 +14,9 @@
 package executor
 
 import (
+	"fmt"
 	"bytes"
 	"context"
-	"fmt"
 	"runtime/trace"
 	"strconv"
 	"sync"
@@ -163,7 +163,7 @@ func (e *HashJoinExec) Open(ctx context.Context) error {
 	e.memTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.MemTracker)
 
 	e.diskTracker = disk.NewTracker(e.id, -1)
-	e.diskTracker.AttachTo(e.ctx.GetSessionVars().StmtCtx.DiskTracker)
+	e.diskTracker.AttachTo(&e.ctx.GetSessionVars().StmtCtx.DiskTracker)
 
 	e.closeCh = make(chan struct{})
 	e.finished.Store(false)
@@ -451,9 +451,12 @@ func (e *HashJoinExec) runJoinWorker(workerID uint, probeKeyColIdx []int) {
 			break
 		}
 		start := time.Now()
+		fmt.Println("e.useOuterToBuild === ", e.useOuterToBuild)
 		if e.useOuterToBuild {
+			fmt.Println("e.join2ChunkForOuterHashJoin()")
 			ok, joinResult = e.join2ChunkForOuterHashJoin(workerID, probeSideResult, hCtx, joinResult)
 		} else {
+			fmt.Println("e.join2Chunk()")
 			ok, joinResult = e.join2Chunk(workerID, probeSideResult, hCtx, joinResult, selected)
 		}
 		probeTime += int64(time.Since(start))
@@ -524,6 +527,9 @@ func (e *HashJoinExec) joinMatchedProbeSideRow2Chunk(workerID uint, probeKey uin
 	iter := chunk.NewIterator4Slice(buildSideRows)
 	hasMatch, hasNull, ok := false, false, false
 	for iter.Begin(); iter.Current() != iter.End(); {
+		r := iter.Current()
+		fmt.Println(r)
+
 		matched, isNull, err := e.joiners[workerID].tryToMatchInners(probeSideRow, iter, joinResult.chk)
 		if err != nil {
 			joinResult.err = err
