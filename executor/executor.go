@@ -1656,12 +1656,18 @@ func (e *UnionExec) Close() error {
 // Before every execution, we must clear statement context.
 func ResetContextOfStmt(ctx sessionctx.Context, s ast.StmtNode) (err error) {
 	vars := ctx.GetSessionVars()
-	sc := &stmtctx.StatementContext{
-		TimeZone:      vars.Location(),
-		TaskID:        stmtctx.AllocateTaskID(),
-		CTEStorageMap: map[int]*CTEStorages{},
-		IsStaleness:   false,
-	}
+	sc := vars.InitStatementContext()
+	sc.TimeZone = vars.Location()
+	sc.TaskID = stmtctx.AllocateTaskID()
+	sc.CTEStorageMap = map[int]*CTEStorages{}
+	sc.IsStaleness = false
+
+	// sc := &stmtctx.StatementContext{
+	// 	TimeZone:      vars.Location(),
+	// 	TaskID:        stmtctx.AllocateTaskID(),
+	// 	CTEStorageMap: map[int]*CTEStorages{},
+	// 	IsStaleness:   false,
+	// }
 
 	sc.InitMemTracker(memory.LabelForSQLText, vars.MemQuotaQuery)
 	sc.InitDiskTracker(memory.LabelForSQLText, -1)
