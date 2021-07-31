@@ -815,6 +815,10 @@ func (w *worker) runDDLJob(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, 
 		ver, err = onAlterTableAlterPartition(t, job)
 	case model.ActionAlterSequence:
 		ver, err = onAlterSequence(t, job)
+	case model.ActionCreateGlobalPartitionRule:
+		ver, err = onCreateGlobalPartitionRule(t, job)
+	case model.ActionDropGlobalPartitionRule:
+		ver, err = onDropGlobalPartitionRule(t, job)
 	case model.ActionRenameTables:
 		ver, err = onRenameTables(d, t, job)
 	default:
@@ -1045,6 +1049,13 @@ func updateSchemaVersion(t *meta.Meta, job *model.Job) (int64, error) {
 				},
 			}
 		}
+	case model.ActionCreateGlobalPartitionRule, model.ActionDropGlobalPartitionRule:
+		gpRule := new(model.GlobalPartitionRule)
+		err = job.DecodeArgs(gpRule)
+		if err != nil {
+			return 0, errors.Trace(err)
+		}
+		diff.GPRuleID = gpRule.ID
 	default:
 		diff.TableID = job.TableID
 	}

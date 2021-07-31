@@ -1046,6 +1046,8 @@ const (
 	ErrInvalidPlacementSpec               = 8234
 	ErrDDLReorgElementNotExist            = 8235
 	ErrPlacementPolicyCheck               = 8236
+	ErrGlobalPartitionRuleExists          = 8237
+	ErrGlobalPartitionRuleNotExists       = 8238
 
 	// TiKV/PD/TiFlash errors.
 	ErrPDServerTimeout           = 9001

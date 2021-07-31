@@ -42,6 +42,7 @@ import (
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/infoschema"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/meta"
 	"github.com/pingcap/tidb/meta/autoid"
 	plannercore "github.com/pingcap/tidb/planner/core"
 	"github.com/pingcap/tidb/plugin"
@@ -81,6 +82,7 @@ type ShowExec struct {
 	Flag      int                  // Some flag parsed from sql, such as FULL.
 	Roles     []*auth.RoleIdentity // Used for show grants.
 	User      *auth.UserIdentity   // Used by show grants, show create user.
+	GPRName   model.CIStr          // Used by show create global partition rule.
 
 	is infoschema.InfoSchema
 
@@ -212,6 +214,10 @@ func (e *ShowExec) fetchAll(ctx context.Context) error {
 		return e.fetchShowBRIE(ast.BRIEKindBackup)
 	case ast.ShowRestores:
 		return e.fetchShowBRIE(ast.BRIEKindRestore)
+	case ast.ShowGlobalPartitionRules:
+		return e.fetchShowGlobalPartitionRules()
+	case ast.ShowCreateGlobalPartitionRule:
+		return e.fetchShowCreateGlobalPartitionRule()
 	}
 	return nil
 }
@@ -332,6 +338,14 @@ func (e *ShowExec) fetchShowDatabases() error {
 		e.appendRow([]interface{}{
 			d,
 		})
+	}
+	return nil
+}
+
+func (e *ShowExec) fetchShowGlobalPartitionRules() error {
+	rules := e.is.AllGlobalPartitionRules()
+	for _, rule := range rules {
+		e.appendRow([]interface{}{rule.Name.O})
 	}
 	return nil
 }
@@ -1165,6 +1179,10 @@ func appendPartitionInfo(partitionInfo *model.PartitionInfo, buf *bytes.Buffer) 
 	if partitionInfo == nil {
 		return
 	}
+	if partitionInfo.GlobalName.L != "" {
+		fmt.Fprintf(buf, "\n GLOBAL PARTITION BY `%s` (%s)", partitionInfo.GlobalName.O, partitionInfo.GlobalExpr)
+		return
+	}
 	if partitionInfo.Type == model.PartitionTypeHash {
 		fmt.Fprintf(buf, "\nPARTITION BY HASH( %s )", partitionInfo.Expr)
 		fmt.Fprintf(buf, "\nPARTITIONS %d", partitionInfo.Num)
@@ -1231,6 +1249,17 @@ func appendPartitionInfo(partitionInfo *model.PartitionInfo, buf *bytes.Buffer) 
 		}
 		buf.WriteString(")")
 	}
+}
+
+func (e *ShowExec) fetchShowCreateGlobalPartitionRule() error {
+	gpRule, ok := e.is.GlobalPartitionRuleByName(e.GPRName)
+	if !ok {
+		return meta.ErrGlobalPartitionRuleNotExists.GenWithStackByArgs()
+	}
+	buf := new(bytes.Buffer)
+	fmt.Fprintf(buf, "CREATE GLOBAL PARTITION RULE `%s` HASH PARTITIONS %d", gpRule.Name.O, gpRule.Num)
+	e.appendRow([]interface{}{gpRule.Name.O, buf.String()})
+	return nil
 }
 
 // ConstructResultOfShowCreateDatabase constructs the result for show create database.

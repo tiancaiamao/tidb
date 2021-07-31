@@ -2332,6 +2332,7 @@ func (b *PlanBuilder) buildShow(ctx context.Context, show *ast.ShowStmt) (Plan, 
 			IndexName:   show.IndexName,
 			Flag:        show.Flag,
 			User:        show.User,
+			GPRName:     show.GPRName,
 			Roles:       show.Roles,
 			Full:        show.Full,
 			IfNotExists: show.IfNotExists,
@@ -3711,6 +3712,12 @@ func (b *PlanBuilder) buildDDL(ctx context.Context, node ast.DDLNode) (Plan, err
 		}
 		b.visitInfo = appendVisitInfo(b.visitInfo, mysql.CreatePriv, v.Name.Schema.L,
 			v.Name.Name.L, "", authErr)
+	case *ast.CreateGlobalPartitionRuleStmt:
+		if b.ctx.GetSessionVars().User != nil {
+			authErr = ErrDBaccessDenied.GenWithStackByArgs("CREATE", b.ctx.GetSessionVars().User.AuthUsername,
+				b.ctx.GetSessionVars().User.AuthHostname, v.Name)
+		}
+		b.visitInfo = appendVisitInfo(b.visitInfo, mysql.CreatePriv, v.Name, "", "", authErr)
 	case *ast.DropDatabaseStmt:
 		if b.ctx.GetSessionVars().User != nil {
 			authErr = ErrDBaccessDenied.GenWithStackByArgs(b.ctx.GetSessionVars().User.AuthUsername,
@@ -4104,6 +4111,10 @@ func buildShowSchema(s *ast.ShowStmt, isView bool, isSequence bool) (schema *exp
 	case ast.ShowBackups, ast.ShowRestores:
 		names = []string{"Destination", "State", "Progress", "Queue_time", "Execution_time", "Finish_time", "Connection"}
 		ftypes = []byte{mysql.TypeVarchar, mysql.TypeVarchar, mysql.TypeDouble, mysql.TypeDatetime, mysql.TypeDatetime, mysql.TypeDatetime, mysql.TypeLonglong}
+	case ast.ShowGlobalPartitionRules:
+		names = []string{"Global_partition_rule"}
+	case ast.ShowCreateGlobalPartitionRule:
+		names = []string{"Global_partition_rule", "Create Global Partition Rule"}
 	}
 
 	schema = expression.NewSchema(make([]*expression.Column, 0, len(names))...)

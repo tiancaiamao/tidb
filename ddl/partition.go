@@ -299,6 +299,9 @@ func buildTablePartitionInfo(ctx sessionctx.Context, s *ast.PartitionOptions, tb
 	if s == nil {
 		return nil
 	}
+	if s.GlobalName != "" {
+		return buildGlobalPartitionInfo(s, tbInfo)
+	}
 
 	if strings.EqualFold(ctx.GetSessionVars().EnableTablePartition, "OFF") {
 		ctx.GetSessionVars().StmtCtx.AppendWarning(errTablePartitionDisabled)
@@ -367,6 +370,31 @@ func buildTablePartitionInfo(ctx sessionctx.Context, s *ast.PartitionOptions, tb
 	}
 
 	tbInfo.Partition.Definitions = defs
+	return nil
+}
+
+func buildGlobalPartitionInfo(s *ast.PartitionOptions, tbInfo *model.TableInfo) error {
+	buf := new(bytes.Buffer)
+	restoreCtx := format.NewRestoreCtx(format.DefaultRestoreFlags, buf)
+	if err := s.GlobalExpr.Restore(restoreCtx); err != nil {
+		return err
+	}
+	globalExpr := buf.String()
+	globalExprColName := strings.ToLower(strings.Trim(globalExpr, "`"))
+	var found bool
+	for _, col := range tbInfo.Columns {
+		if col.Name.L == globalExprColName && types.IsTypeInteger(col.Tp){
+			found = true
+			break
+		}
+	}
+	if !found {
+		return errors.Trace(ErrWrongExprInPartitionFunc)
+	}
+	tbInfo.Partition = &model.PartitionInfo{
+		GlobalExpr: buf.String(),
+		GlobalName: model.NewCIStr(s.GlobalName),
+	}
 	return nil
 }
 
@@ -1251,7 +1279,7 @@ func (w *worker) onExchangeTablePartition(d *ddlCtx, t *meta.Meta, job *model.Jo
 	})
 
 	// recreate non-partition table meta info
-	err = t.DropTableOrView(job.SchemaID, partDef.ID, true)
+	err = t.DropTableOrView(job.SchemaID, &model.TableInfo{ID: ptSchemaID}, true)
 	if err != nil {
 		job.State = model.JobStateCancelled
 		return ver, errors.Trace(err)

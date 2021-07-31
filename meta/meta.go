@@ -60,10 +60,12 @@ var (
 	mNextGlobalIDKey  = []byte("NextGlobalID")
 	mSchemaVersionKey = []byte("SchemaVersionKey")
 	mDBs              = []byte("DBs")
+	mGPRs             = []byte("GPRs") // Global Partition Rules.
 	mDBPrefix         = "DB"
 	mTablePrefix      = "Table"
 	mSequencePrefix   = "SID"
 	mSeqCyclePrefix   = "SequenceCycle"
+	mGPRID            = "GPRID" // Global Partition Rule ID.
 	mTableIDPrefix    = "TID"
 	mRandomIDPrefix   = "TARID"
 	mBootstrapKey     = []byte("BootstrapKey")
@@ -81,6 +83,10 @@ var (
 	ErrTableNotExists = dbterror.ClassMeta.NewStd(mysql.ErrNoSuchTable)
 	// ErrDDLReorgElementNotExist is the error for reorg element not exists.
 	ErrDDLReorgElementNotExist = dbterror.ClassMeta.NewStd(errno.ErrDDLReorgElementNotExist)
+	// ErrGlobalPartitionRuleExists is the error for global partition rule exists.
+	ErrGlobalPartitionRuleExists = dbterror.ClassMeta.NewStd(errno.ErrGlobalPartitionRuleExists)
+	// ErrGlobalPartitionRuleNotExists is the error for global partition rule not exists.
+	ErrGlobalPartitionRuleNotExists = dbterror.ClassMeta.NewStd(errno.ErrGlobalPartitionRuleNotExists)
 )
 
 // Meta is for handling meta information in a transaction.
@@ -164,6 +170,35 @@ func (m *Meta) sequenceKey(sequenceID int64) []byte {
 
 func (m *Meta) sequenceCycleKey(sequenceID int64) []byte {
 	return []byte(fmt.Sprintf("%s:%d", mSeqCyclePrefix, sequenceID))
+}
+
+func (m *Meta) gprKey(ruleID uint32) []byte {
+	return []byte(fmt.Sprintf("%d", ruleID))
+}
+
+// GenGlobalPartitionRuleID generates a global partition rule id.
+func (m *Meta) GenGlobalPartitionRuleID() (int64, error) {
+	globalIDMutex.Lock()
+	defer globalIDMutex.Unlock()
+	return m.txn.Inc([]byte(mGPRID), 1)
+}
+
+// GetGlobalPartitionRule gets the global partition rule by id.
+func (m *Meta) GetGlobalPartitionRule(id uint32) (*model.GlobalPartitionRule, error) {
+	ruleKey := m.gprKey(id)
+	data, err := m.txn.HGet(mGPRs, ruleKey)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, ErrGlobalPartitionRuleNotExists.GenWithStackByArgs()
+	}
+	rule := new(model.GlobalPartitionRule)
+	err = json.Unmarshal(data, rule)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return rule, nil
 }
 
 // DDLJobHistoryKey is only used for testing.
@@ -281,6 +316,22 @@ func (m *Meta) checkDBNotExists(dbKey []byte) error {
 	return errors.Trace(err)
 }
 
+func (m *Meta) checkGPRNotExists(gprKey []byte) error {
+	v, err := m.txn.HGet(mGPRs, gprKey)
+	if err == nil && v != nil {
+		err = ErrGlobalPartitionRuleExists.GenWithStackByArgs()
+	}
+	return errors.Trace(err)
+}
+
+func (m *Meta) checkGPRExists(grpKey []byte) error {
+	v, err := m.txn.HGet(mGPRs, grpKey)
+	if err == nil && v == nil {
+		err = ErrGlobalPartitionRuleNotExists.GenWithStackByArgs()
+	}
+	return errors.Trace(err)
+}
+
 func (m *Meta) checkTableExists(dbKey []byte, tableKey []byte) error {
 	v, err := m.txn.HGet(dbKey, tableKey)
 	if err == nil && v == nil {
@@ -329,6 +380,32 @@ func (m *Meta) UpdateDatabase(dbInfo *model.DBInfo) error {
 	return m.txn.HSet(mDBs, dbKey, data)
 }
 
+// CreateGlobalPartitionRule creates a global partition rule.
+func (m *Meta) CreateGlobalPartitionRule(rule *model.GlobalPartitionRule) error {
+	ruleKey := m.gprKey(rule.ID)
+	if err := m.checkGPRNotExists(ruleKey); err != nil {
+		return errors.Trace(err)
+	}
+	data, err := json.Marshal(rule)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return m.txn.HSet(mGPRs, ruleKey, data)
+}
+
+// updateGlobalPartitionRule updates a global partition rule.
+func (m *Meta) updateGlobalPartitionRule(rule *model.GlobalPartitionRule) error {
+	ruleKey := m.gprKey(rule.ID)
+	if err := m.checkGPRExists(ruleKey); err != nil {
+		return errors.Trace(err)
+	}
+	data, err := json.Marshal(rule)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return m.txn.HSet(mGPRs, ruleKey, data)
+}
+
 // CreateTableOrView creates a table with tableInfo in database.
 func (m *Meta) CreateTableOrView(dbID int64, tableInfo *model.TableInfo) error {
 	// Check if db exists.
@@ -347,8 +424,42 @@ func (m *Meta) CreateTableOrView(dbID int64, tableInfo *model.TableInfo) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-
+	if pi := tableInfo.Partition; pi != nil && pi.GlobalID != 0 {
+		err = m.updateGlobalRuleAddTableID(pi.GlobalID, tableInfo.ID)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
 	return m.txn.HSet(dbKey, tableKey, data)
+}
+
+func (m *Meta) updateGlobalRuleAddTableID(globalID uint32, tableID int64) error {
+	rule, err := m.GetGlobalPartitionRule(globalID)
+	if err != nil {
+		return err
+	}
+	for _, id := range rule.TableIDs {
+		if id == tableID {
+			return nil
+		}
+	}
+	rule.TableIDs = append(rule.TableIDs, tableID)
+	return m.updateGlobalPartitionRule(rule)
+}
+
+func (m *Meta) updateGlobalRuleRemoveTableID(globalID uint32, tableID int64) error {
+	rule, err := m.GetGlobalPartitionRule(globalID)
+	if err != nil {
+		return err
+	}
+	newIDs := rule.TableIDs[:0]
+	for _, id := range rule.TableIDs {
+		if id != tableID {
+			newIDs = append(newIDs, id)
+		}
+	}
+	rule.TableIDs = newIDs
+	return m.updateGlobalPartitionRule(rule)
 }
 
 // CreateTableAndSetAutoID creates a table with tableInfo in database,
@@ -412,21 +523,34 @@ func (m *Meta) DropDatabase(dbID int64) error {
 	return nil
 }
 
+// DropGlobalPartitionRule drops global partition rule.
+func (m *Meta) DropGlobalPartitionRule(ruleID uint32) error {
+	rule, err := m.GetGlobalPartitionRule(ruleID)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if len(rule.TableIDs) > 0 {
+		return errors.New("should drop tables that depends on the rule first.")
+	}
+	return m.txn.HDel(mGPRs, m.gprKey(ruleID))
+}
+
 // DropSequence drops sequence in database.
 // Sequence is made of table struct and kv value pair.
-func (m *Meta) DropSequence(dbID int64, tblID int64, delAutoID bool) error {
-	err := m.DropTableOrView(dbID, tblID, delAutoID)
+func (m *Meta) DropSequence(dbID int64, tblInfo *model.TableInfo, delAutoID bool) error {
+	err := m.DropTableOrView(dbID, tblInfo, delAutoID)
 	if err != nil {
 		return err
 	}
-	err = m.txn.HDel(m.dbKey(dbID), m.sequenceKey(tblID))
+	err = m.txn.HDel(m.dbKey(dbID), m.sequenceKey(tblInfo.ID))
 	return errors.Trace(err)
 }
 
 // DropTableOrView drops table in database.
 // If delAutoID is true, it will delete the auto_increment id key-value of the table.
 // For rename table, we do not need to rename auto_increment id key-value.
-func (m *Meta) DropTableOrView(dbID int64, tblID int64, delAutoID bool) error {
+func (m *Meta) DropTableOrView(dbID int64, tblInfo *model.TableInfo, delAutoID bool) error {
+	tblID := tblInfo.ID
 	// Check if db exists.
 	dbKey := m.dbKey(dbID)
 	if err := m.checkDBExists(dbKey); err != nil {
@@ -437,6 +561,11 @@ func (m *Meta) DropTableOrView(dbID int64, tblID int64, delAutoID bool) error {
 	tableKey := m.tableKey(tblID)
 	if err := m.checkTableExists(dbKey, tableKey); err != nil {
 		return errors.Trace(err)
+	}
+	if pi := tblInfo.Partition; pi != nil && pi.GlobalID != 0 {
+		if err := m.updateGlobalRuleRemoveTableID(pi.GlobalID, tblID); err != nil {
+			return errors.Trace(err)
+		}
 	}
 
 	if err := m.txn.HDel(dbKey, tableKey); err != nil {
@@ -534,6 +663,24 @@ func (m *Meta) ListDatabases() ([]*model.DBInfo, error) {
 		dbs = append(dbs, dbInfo)
 	}
 	return dbs, nil
+}
+
+// ListGlobalPartitionRules show all global partition rules.
+func (m *Meta) ListGlobalPartitionRules() ([]*model.GlobalPartitionRule, error) {
+	res, err := m.txn.HGetAll(mGPRs)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	rules := make([]*model.GlobalPartitionRule, 0, len(res))
+	for _, r := range res {
+		rule := &model.GlobalPartitionRule{}
+		err = json.Unmarshal(r.Value, rule)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		rules = append(rules, rule)
+	}
+	return rules, nil
 }
 
 // GetDatabase gets the database value with ID.

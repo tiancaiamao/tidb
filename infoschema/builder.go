@@ -53,6 +53,11 @@ func (b *Builder) ApplyDiff(m *meta.Meta, diff *model.SchemaDiff) ([]int64, erro
 		return b.applyDropSchema(diff.SchemaID), nil
 	case model.ActionModifySchemaCharsetAndCollate:
 		return nil, b.applyModifySchemaCharsetAndCollate(m, diff)
+	case model.ActionCreateGlobalPartitionRule:
+		return nil, b.applyCreateGlobalPartitionRule(m, diff)
+	case model.ActionDropGlobalPartitionRule:
+		delete(b.is.globalPartitionRuleMap, diff.GPRuleID)
+		return nil, nil
 	}
 	roDBInfo, ok := b.is.SchemaByID(diff.SchemaID)
 	if !ok {
@@ -308,6 +313,20 @@ func (b *Builder) copySortedTablesBucket(bucketIdx int) {
 	b.is.sortedTablesBuckets[bucketIdx] = newSortedTables
 }
 
+func (b *Builder) applyCreateGlobalPartitionRule(m *meta.Meta, diff *model.SchemaDiff) error {
+	gpRule, err := m.GetGlobalPartitionRule(diff.GPRuleID)
+	if err != nil {
+		return err
+	}
+	b.is.globalPartitionRuleMap[gpRule.ID] = gpRule
+	return nil
+}
+
+func (b *Builder) applyDropGlobalPartitionRule(m *meta.Meta, diff *model.SchemaDiff) error {
+	delete(b.is.globalPartitionRuleMap, diff.GPRuleID)
+	return nil
+}
+
 func (b *Builder) applyCreateTable(m *meta.Meta, dbInfo *model.DBInfo, tableID int64, allocs autoid.Allocators, tp model.ActionType, affected []int64) ([]int64, error) {
 	tblInfo, err := m.GetTable(dbInfo.ID, tableID)
 	if err != nil {
@@ -483,6 +502,7 @@ func (b *Builder) InitWithOldInfoSchema(oldSchema InfoSchema) *Builder {
 	oldIS := oldSchema.(*infoSchema)
 	b.is.schemaMetaVersion = oldIS.schemaMetaVersion
 	b.copySchemasMap(oldIS)
+	b.copyGlobalPartitionRuleMap(oldIS)
 	b.copyBundlesMap(oldIS)
 	copy(b.is.sortedTablesBuckets, oldIS.sortedTablesBuckets)
 	return b
@@ -491,6 +511,12 @@ func (b *Builder) InitWithOldInfoSchema(oldSchema InfoSchema) *Builder {
 func (b *Builder) copySchemasMap(oldIS *infoSchema) {
 	for k, v := range oldIS.schemaMap {
 		b.is.schemaMap[k] = v
+	}
+}
+
+func (b *Builder) copyGlobalPartitionRuleMap(oldIS *infoSchema) {
+	for k, v := range oldIS.globalPartitionRuleMap {
+		b.is.globalPartitionRuleMap[k] = v
 	}
 }
 
@@ -518,7 +544,8 @@ func (b *Builder) copySchemaTables(dbName string) *model.DBInfo {
 }
 
 // InitWithDBInfos initializes an empty new InfoSchema with a slice of DBInfo, all placement rules, and schema version.
-func (b *Builder) InitWithDBInfos(dbInfos []*model.DBInfo, bundles []*placement.Bundle, schemaVersion int64) (*Builder, error) {
+func (b *Builder) InitWithDBInfos(dbInfos []*model.DBInfo, bundles []*placement.Bundle,
+	gpRules []*model.GlobalPartitionRule, schemaVersion int64) (*Builder, error) {
 	info := b.is
 	info.schemaMetaVersion = schemaVersion
 	for _, bundle := range bundles {
@@ -530,6 +557,9 @@ func (b *Builder) InitWithDBInfos(dbInfos []*model.DBInfo, bundles []*placement.
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
+	}
+	for _, rule := range gpRules {
+		info.globalPartitionRuleMap[rule.ID] = rule
 	}
 
 	// Initialize virtual tables.
@@ -587,9 +617,10 @@ func NewBuilder(store kv.Storage) *Builder {
 	return &Builder{
 		store: store,
 		is: &infoSchema{
-			schemaMap:           map[string]*schemaTables{},
-			ruleBundleMap:       map[string]*placement.Bundle{},
-			sortedTablesBuckets: make([]sortedTables, bucketCount),
+			schemaMap:              map[string]*schemaTables{},
+			globalPartitionRuleMap: map[uint32]*model.GlobalPartitionRule{},
+			ruleBundleMap:          map[string]*placement.Bundle{},
+			sortedTablesBuckets:    make([]sortedTables, bucketCount),
 		},
 	}
 }

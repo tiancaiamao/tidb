@@ -725,6 +725,7 @@ func (b *executorBuilder) buildShow(v *plannercore.PhysicalShow) Executor {
 		baseExecutor: newBaseExecutor(b.ctx, v.Schema(), v.ID()),
 		Tp:           v.Tp,
 		DBName:       model.NewCIStr(v.DBName),
+		GPRName:      model.NewCIStr(v.GPRName),
 		Table:        v.Table,
 		Column:       v.Column,
 		IndexName:    v.IndexName,

@@ -20,6 +20,7 @@ package ddl
 import (
 	"context"
 	"fmt"
+	"github.com/pingcap/tidb/meta"
 	"math"
 	"strconv"
 	"strings"
@@ -1765,7 +1766,17 @@ func (d *ddl) assignTableID(tbInfo *model.TableInfo) error {
 	return nil
 }
 
-func (d *ddl) assignPartitionIDs(defs []model.PartitionDefinition) error {
+func (d *ddl) assignPartitionIDs(pi *model.PartitionInfo, is infoschema.InfoSchema) error {
+	if pi.GlobalName.L != "" {
+		rule, ok := is.GlobalPartitionRuleByName(pi.GlobalName)
+		if !ok {
+			return meta.ErrGlobalPartitionRuleNotExists.GenWithStackByArgs()
+		}
+		pi.GlobalID = rule.ID
+		pi.Num = rule.Num
+		return nil
+	}
+	defs := pi.Definitions
 	genIDs, err := d.genGlobalIDs(len(defs))
 	if err != nil {
 		return errors.Trace(err)
@@ -1881,7 +1892,7 @@ func (d *ddl) CreateTableWithInfo(
 	}
 
 	if tbInfo.Partition != nil {
-		if err := d.assignPartitionIDs(tbInfo.Partition.Definitions); err != nil {
+		if err := d.assignPartitionIDs(tbInfo.Partition, is); err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -2964,7 +2975,7 @@ func (d *ddl) AddTablePartitions(ctx sessionctx.Context, ident ast.Ident, spec *
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if err := d.assignPartitionIDs(partInfo.Definitions); err != nil {
+	if err := d.assignPartitionIDs(partInfo, is); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -5919,6 +5930,51 @@ func (d *ddl) DropSequence(ctx sessionctx.Context, ti ast.Ident, ifExists bool) 
 	}
 
 	err = d.doDDLJob(ctx, job)
+	err = d.callHookOnChanged(err)
+	return errors.Trace(err)
+}
+
+func (d *ddl) CreateGlobalPartitionRule(ctx sessionctx.Context, stmt *ast.CreateGlobalPartitionRuleStmt) error {
+	is := d.GetInfoSchemaWithInterceptor(ctx)
+	_, ok := is.GlobalPartitionRuleByName(model.NewCIStr(stmt.Name))
+	if ok {
+		return meta.ErrGlobalPartitionRuleExists.GenWithStackByArgs()
+	}
+	var id int64
+	err := kv.RunInNewTxn(context.Background(), d.store, true, func(ctx context.Context, txn kv.Transaction) error {
+		m := meta.NewMeta(txn)
+		var err error
+		id, err = m.GenGlobalPartitionRuleID()
+		return err
+	})
+	pi := &model.GlobalPartitionRule{
+		ID:   uint32(id),
+		Name: model.NewCIStr(stmt.Name),
+		Type: model.PartitionTypeHash,
+		Num:  stmt.Rule.Num,
+	}
+	job := &model.Job{
+		Type:       model.ActionCreateGlobalPartitionRule,
+		Args:       []interface{}{pi},
+		BinlogInfo: &model.HistoryInfo{},
+	}
+	err = d.doDDLJob(ctx, job)
+	err = d.callHookOnChanged(err)
+	return errors.Trace(err)
+}
+
+func (d *ddl) DropGlobalPartitionRule(ctx sessionctx.Context, stmt *ast.DropGlobalPartitionRuleStmt) error {
+	is := d.infoCache.GetLatest()
+	pi, ok := is.GlobalPartitionRuleByName(model.NewCIStr(stmt.Name))
+	if !ok {
+		return meta.ErrGlobalPartitionRuleNotExists.GenWithStackByArgs()
+	}
+	job := &model.Job{
+		Type:       model.ActionDropGlobalPartitionRule,
+		Args:       []interface{}{pi},
+		BinlogInfo: &model.HistoryInfo{},
+	}
+	err := d.doDDLJob(ctx, job)
 	err = d.callHookOnChanged(err)
 	return errors.Trace(err)
 }

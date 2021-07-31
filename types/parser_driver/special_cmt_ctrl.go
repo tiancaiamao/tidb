@@ -16,27 +16,7 @@ package driver
 import (
 	"fmt"
 	"regexp"
-
-	"github.com/pingcap/parser"
 )
-
-// To add new features that needs to be downgrade-compatible,
-// 1. Define a featureID below and make sure it is unique.
-//    For example, `const FeatureIDMyFea = "my_fea"`.
-// 2. Register the new featureID in init().
-//    Only the registered parser can parse the comment annotated with `my_fea`.
-//    Now, the parser treats `/*T![my_fea] what_ever */` and `what_ever` equivalent.
-//    In other word, the parser in old-version TiDB will ignores these comments.
-// 3. [optional] Add a pattern into FeatureIDPatterns.
-//    This is only required if the new feature is contained in DDL,
-//    and we want to comment out this part of SQL in binlog.
-func init() {
-	parser.SpecialCommentsController.Register(string(FeatureIDAutoRandom))
-	parser.SpecialCommentsController.Register(string(FeatureIDAutoIDCache))
-	parser.SpecialCommentsController.Register(string(FeatureIDAutoRandomBase))
-	parser.SpecialCommentsController.Register(string(FeatureClusteredIndex))
-	parser.SpecialCommentsController.Register(string(FeatureForceAutoInc))
-}
 
 // SpecialCommentVersionPrefix is the prefix of TiDB executable comments.
 const SpecialCommentVersionPrefix = `/*T!`

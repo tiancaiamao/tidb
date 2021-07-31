@@ -251,6 +251,12 @@ func (p *preprocessor) Enter(in ast.Node) (out ast.Node, skipChildren bool) {
 		p.stmtTp = TypeDrop
 		p.flag |= inCreateOrDropTable
 		p.checkDropSequenceGrammar(node)
+	case *ast.CreateGlobalPartitionRuleStmt:
+		p.stmtTp = TypeCreate
+		p.resolveCreateGlobalPartitionRuleStmt(node)
+	case *ast.DropGlobalPartitionRuleStmt:
+		p.stmtTp = TypeDrop
+		p.checkDropGlobalPartitionRuleGrammar(node)
 	case *ast.FuncCastExpr:
 		p.checkFuncCastExpr(node)
 	case *ast.FuncCallExpr:
@@ -838,6 +844,12 @@ func (p *preprocessor) checkCreateViewWithSelectGrammar(stmt *ast.CreateViewStmt
 
 func (p *preprocessor) checkDropSequenceGrammar(stmt *ast.DropSequenceStmt) {
 	p.checkDropTableNames(stmt.Sequences)
+}
+
+func (p *preprocessor) checkDropGlobalPartitionRuleGrammar(stmt *ast.DropGlobalPartitionRuleStmt) {
+	if isIncorrectName(stmt.Name) {
+		p.err = ddl.ErrWrongDBName.GenWithStackByArgs(stmt.Name)
+	}
 }
 
 func (p *preprocessor) checkDropTableGrammar(stmt *ast.DropTableStmt) {
@@ -1457,6 +1469,13 @@ func (p *preprocessor) resolveCreateSequenceStmt(stmt *ast.CreateSequenceStmt) {
 	sName := stmt.Name.Name.String()
 	if isIncorrectName(sName) {
 		p.err = ddl.ErrWrongTableName.GenWithStackByArgs(sName)
+		return
+	}
+}
+
+func (p *preprocessor) resolveCreateGlobalPartitionRuleStmt(stmt *ast.CreateGlobalPartitionRuleStmt) {
+	if isIncorrectName(stmt.Name) {
+		p.err = ddl.ErrWrongDBName.GenWithStackByArgs(stmt.Name)
 		return
 	}
 }
