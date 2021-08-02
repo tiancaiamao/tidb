@@ -71,6 +71,9 @@ const (
 	// RestoreDataFlag is the flag that RestoreData begin with.
 	// See rowcodec.Encoder.Encode and rowcodec.row.toBytes
 	RestoreDataFlag byte = rowcodec.CodecVer
+
+	GlobalPartitionFirstByte byte = 'p'
+	GlobalPartitionPrefixLen      = 9
 )
 
 // TableSplitKeyLen is the length of key 't{table_id}' which is used for table split.
@@ -91,17 +94,28 @@ func EncodeRowKey(tableID int64, encodedHandle []byte) kv.Key {
 
 // EncodeRowKeyWithHandle encodes the table id, row handle into a kv.Key
 func EncodeRowKeyWithHandle(tableID int64, handle kv.Handle) kv.Key {
-	return EncodeRowKey(tableID, handle.Encoded())
+	key := EncodeRowKey(tableID, handle.Encoded())
+	if handle.IsGlobalPartition() {
+		ruleID, partitionID := handle.GlobalPartitionIDs()
+		key = PrependGlobalPartitionPrefix(key, ruleID, partitionID)
+	}
+	return key
 }
 
 // CutRowKeyPrefix cuts the row key prefix.
 func CutRowKeyPrefix(key kv.Key) []byte {
+	if IsGlobalPartitionKey(key) {
+		key = key[GlobalPartitionPrefixLen:]
+	}
 	return key[prefixLen:]
 }
 
 // EncodeRecordKey encodes the recordPrefix, row handle into a kv.Key.
 func EncodeRecordKey(recordPrefix kv.Key, h kv.Handle) kv.Key {
 	buf := make([]byte, 0, len(recordPrefix)+h.Len())
+	if h.IsGlobalPartition() {
+		buf = appendGlobalPartitionPrefix(buf, h)
+	}
 	buf = append(buf, recordPrefix...)
 	buf = append(buf, h.Encoded()...)
 	return buf
@@ -120,8 +134,12 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle kv.Handle, err error) {
 	if len(key) <= prefixLen {
 		return 0, nil, errInvalidRecordKey.GenWithStack("invalid record key - %q", key)
 	}
-
 	k := key
+	var globalRuleID, partitionID uint32
+	if IsGlobalPartitionKey(key) {
+		globalRuleID, partitionID = DecodeGlobalPartitionIDs(key)
+		key = key[GlobalPartitionPrefixLen:]
+	}
 	if !hasTablePrefix(key) {
 		return 0, nil, errInvalidRecordKey.GenWithStack("invalid record key - %q", k)
 	}
@@ -143,19 +161,28 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle kv.Handle, err error) {
 		if err != nil {
 			return 0, nil, errors.Trace(err)
 		}
-		return tableID, kv.IntHandle(intHandle), nil
+		handle = kv.IntHandle(intHandle)
+		if globalRuleID != 0 {
+			handle = kv.NewGlobalPartitionHandle(handle, globalRuleID, partitionID)
+		}
+		return tableID, handle, nil
 	}
-	h, err := kv.NewCommonHandle(key)
+	handle, err = kv.NewCommonHandle(key)
 	if err != nil {
 		return 0, nil, errInvalidRecordKey.GenWithStack("invalid record key - %q %v", k, err)
 	}
-	return tableID, h, nil
+	if globalRuleID != 0 {
+		handle = kv.NewGlobalPartitionHandle(handle, globalRuleID, partitionID)
+	}
+	return tableID, handle, nil
 }
 
 // DecodeIndexKey decodes the key and gets the tableID, indexID, indexValues.
 func DecodeIndexKey(key kv.Key) (tableID int64, indexID int64, indexValues []string, err error) {
 	k := key
-
+	if IsGlobalPartitionKey(key) {
+		key = key[GlobalPartitionPrefixLen:]
+	}
 	tableID, indexID, isRecord, err := DecodeKeyHead(key)
 	if err != nil {
 		return 0, 0, nil, errors.Trace(err)
@@ -218,6 +245,9 @@ func DecodeMetaKey(ek kv.Key) (key []byte, field []byte, err error) {
 func DecodeKeyHead(key kv.Key) (tableID int64, indexID int64, isRecordKey bool, err error) {
 	isRecordKey = false
 	k := key
+	if IsGlobalPartitionKey(key) {
+		key = key[GlobalPartitionPrefixLen:]
+	}
 	if !key.HasPrefix(tablePrefix) {
 		err = errInvalidKey.GenWithStack("invalid key - %q", k)
 		return
@@ -249,8 +279,45 @@ func DecodeKeyHead(key kv.Key) (tableID int64, indexID int64, isRecordKey bool, 
 	return
 }
 
+func IsGlobalPartitionKey(key kv.Key) bool {
+	return len(key) > GlobalPartitionPrefixLen && key[0] == GlobalPartitionFirstByte
+}
+
+func DecodeGlobalPartitionIDs(key kv.Key) (uint32, uint32) {
+	return binary.BigEndian.Uint32(key[1:]), binary.BigEndian.Uint32(key[5:])
+}
+
+func appendGlobalPartitionPrefix(buf []byte, h kv.Handle) []byte {
+	ruleID, partID := h.GlobalPartitionIDs()
+	buf = append(buf, 'p')
+	buf = append(buf, make([]byte, 8)...)
+	binary.BigEndian.PutUint32(buf[1:], ruleID)
+	binary.BigEndian.PutUint32(buf[5:], partID)
+	return buf
+}
+
+// PrependGlobalPartitionPrefix prepends global partition prefix to the key.
+func PrependGlobalPartitionPrefix(key kv.Key, ruleID, partitionID uint32) kv.Key {
+	newKey := make(kv.Key, GlobalPartitionPrefixLen, GlobalPartitionPrefixLen+len(key))
+	newKey[0] = GlobalPartitionFirstByte
+	binary.BigEndian.PutUint32(newKey[1:], ruleID)
+	binary.BigEndian.PutUint32(newKey[5:], partitionID)
+	return append(newKey, key...)
+}
+
+// PrependGlobalPartitionPrefix prepends global partition prefix to the key.
+func PrependGlobalPartitionPrefixForRange(ran kv.KeyRange, ruleID, partitionID uint32) kv.KeyRange {
+	return kv.KeyRange{
+		StartKey: PrependGlobalPartitionPrefix(ran.StartKey, ruleID, partitionID),
+		EndKey:   PrependGlobalPartitionPrefix(ran.EndKey, ruleID, partitionID),
+	}
+}
+
 // DecodeTableID decodes the table ID of the key, if the key is not table key, returns 0.
 func DecodeTableID(key kv.Key) int64 {
+	if IsGlobalPartitionKey(key) {
+		key = key[GlobalPartitionPrefixLen:]
+	}
 	if !key.HasPrefix(tablePrefix) {
 		return 0
 	}
@@ -263,14 +330,30 @@ func DecodeTableID(key kv.Key) int64 {
 
 // DecodeRowKey decodes the key and gets the handle.
 func DecodeRowKey(key kv.Key) (kv.Handle, error) {
+	var ruleID, partitionID uint32
+	if IsGlobalPartitionKey(key) {
+		ruleID, partitionID = DecodeGlobalPartitionIDs(key)
+		key = key[GlobalPartitionPrefixLen:]
+	}
 	if len(key) < RecordRowKeyLen || !hasTablePrefix(key) || !hasRecordPrefixSep(key[prefixLen-2:]) {
 		return kv.IntHandle(0), errInvalidKey.GenWithStack("invalid key - %q", key)
 	}
 	if len(key) == RecordRowKeyLen {
 		u := binary.BigEndian.Uint64(key[prefixLen:])
-		return kv.IntHandle(codec.DecodeCmpUintToInt(u)), nil
+		var h kv.Handle = kv.IntHandle(codec.DecodeCmpUintToInt(u))
+		if ruleID != 0 {
+			h = kv.NewGlobalPartitionHandle(h, ruleID, partitionID)
+		}
+		return h, nil
 	}
-	return kv.NewCommonHandle(key[prefixLen:])
+	h, err := kv.NewCommonHandle(key[prefixLen:])
+	if err != nil {
+		return nil, err
+	}
+	if ruleID != 0 {
+		return kv.NewGlobalPartitionHandle(h, ruleID, partitionID), nil
+	}
+	return h, nil
 }
 
 // EncodeValue encodes a go value to bytes.
@@ -639,6 +722,9 @@ func EncodeIndexSeekKey(tableID int64, idxID int64, encodedValue []byte) kv.Key 
 // The returned value b is the remaining bytes of the key which would be empty if it is unique index or handle data
 // if it is non-unique index.
 func CutIndexKey(key kv.Key, colIDs []int64) (values map[int64][]byte, b []byte, err error) {
+	if IsGlobalPartitionKey(key) {
+		key = key[GlobalPartitionPrefixLen:]
+	}
 	b = key[prefixLen+idLen:]
 	values = make(map[int64][]byte, len(colIDs))
 	for _, id := range colIDs {
@@ -654,6 +740,9 @@ func CutIndexKey(key kv.Key, colIDs []int64) (values map[int64][]byte, b []byte,
 
 // CutIndexPrefix cuts the index prefix.
 func CutIndexPrefix(key kv.Key) []byte {
+	if IsGlobalPartitionKey(key) {
+		key = key[GlobalPartitionPrefixLen:]
+	}
 	return key[prefixLen+idLen:]
 }
 
@@ -661,6 +750,9 @@ func CutIndexPrefix(key kv.Key) []byte {
 // The returned value b is the remaining bytes of the key which would be empty if it is unique index or handle data
 // if it is non-unique index.
 func CutIndexKeyNew(key kv.Key, length int) (values [][]byte, b []byte, err error) {
+	if IsGlobalPartitionKey(key) {
+		key = key[GlobalPartitionPrefixLen:]
+	}
 	b = key[prefixLen+idLen:]
 	values = make([][]byte, 0, length)
 	for i := 0; i < length; i++ {
@@ -678,6 +770,9 @@ func CutIndexKeyNew(key kv.Key, length int) (values [][]byte, b []byte, err erro
 // The returned value b is the remaining bytes of the key which would be empty if it is unique index or handle data
 // if it is non-unique index.
 func CutCommonHandle(key kv.Key, length int) (values [][]byte, b []byte, err error) {
+	if IsGlobalPartitionKey(key) {
+		key = key[GlobalPartitionPrefixLen:]
+	}
 	b = key[prefixLen:]
 	values = make([][]byte, 0, length)
 	for i := 0; i < length; i++ {
@@ -880,14 +975,34 @@ func DecodeIndexKV(key, value []byte, colsLen int, hdStatus HandleStatus, column
 
 // DecodeIndexHandle uses to decode the handle from index key/value.
 func DecodeIndexHandle(key, value []byte, colsLen int) (kv.Handle, error) {
+	var ruleID, partitionID uint32
+	if IsGlobalPartitionKey(key) {
+		ruleID, partitionID = DecodeGlobalPartitionIDs(key)
+		key = key[GlobalPartitionPrefixLen:]
+	}
 	_, b, err := CutIndexKeyNew(key, colsLen)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	var h kv.Handle
 	if len(b) > 0 {
-		return decodeHandleInIndexKey(b)
+		h, err = decodeHandleInIndexKey(b)
+		if err != nil {
+			return nil, err
+		}
+		if ruleID > 0 {
+			h = kv.NewGlobalPartitionHandle(h, ruleID, partitionID)
+		}
+		return h, nil
 	} else if len(value) >= 8 {
-		return decodeHandleInIndexValue(value)
+		h, err = decodeHandleInIndexValue(value)
+		if err != nil {
+			return nil, err
+		}
+		if ruleID > 0 {
+			h = kv.NewGlobalPartitionHandle(h, ruleID, partitionID)
+		}
+		return h, nil
 	}
 	// Should never execute to here.
 	return nil, errors.Errorf("no handle in index key: %v, value: %v", key, value)
@@ -971,17 +1086,26 @@ func GenTableIndexPrefix(tableID int64) kv.Key {
 
 // IsRecordKey is used to check whether the key is an record key.
 func IsRecordKey(k []byte) bool {
+	if IsGlobalPartitionKey(k) {
+		k = k[GlobalPartitionPrefixLen:]
+	}
 	return len(k) > 11 && k[0] == 't' && k[10] == 'r'
 }
 
 // IsIndexKey is used to check whether the key is an index key.
 func IsIndexKey(k []byte) bool {
+	if IsGlobalPartitionKey(k) {
+		k = k[GlobalPartitionPrefixLen:]
+	}
 	return len(k) > 11 && k[0] == 't' && k[10] == 'i'
 }
 
 // IsUntouchedIndexKValue uses to check whether the key is index key, and the value is untouched,
 // since the untouched index key/value is no need to commit.
 func IsUntouchedIndexKValue(k, v []byte) bool {
+	if IsGlobalPartitionKey(k) {
+		k = k[GlobalPartitionPrefixLen:]
+	}
 	if !IsIndexKey(k) {
 		return false
 	}
@@ -1009,8 +1133,12 @@ func GenTablePrefix(tableID int64) kv.Key {
 
 // TruncateToRowKeyLen truncates the key to row key length if the key is longer than row key.
 func TruncateToRowKeyLen(key kv.Key) kv.Key {
-	if len(key) > RecordRowKeyLen {
-		return key[:RecordRowKeyLen]
+	length := RecordRowKeyLen
+	if IsGlobalPartitionKey(key) {
+		length += GlobalPartitionPrefixLen
+	}
+	if len(key) > length {
+		return key[:length]
 	}
 	return key
 }
@@ -1057,6 +1185,9 @@ func GenIndexKey(sc *stmtctx.StatementContext, tblInfo *model.TableInfo, idxInfo
 	// using col_name(length) syntax to specify an index prefix length.
 	TruncateIndexValues(tblInfo, idxInfo, indexedValues)
 	key = GetIndexKeyBuf(buf, RecordRowKeyLen+len(indexedValues)*9+9)
+	if h.IsGlobalPartition() {
+		key = appendGlobalPartitionPrefix(key, h)
+	}
 	key = appendTableIndexPrefix(key, phyTblID)
 	key = codec.EncodeInt(key, idxInfo.ID)
 	key, err = codec.EncodeKey(sc, key, indexedValues...)

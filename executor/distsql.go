@@ -275,6 +275,9 @@ func (e *IndexReaderExecutor) open(ctx context.Context, kvRanges []kv.KeyRange) 
 		collExec := true
 		e.dagPB.CollectExecutionSummaries = &collExec
 	}
+	if e.table.Meta().IsGlobalPartitionTable() {
+		kvRanges = newGlobalPartitionRangeBuilder(e.table.Meta()).build(e.ranges, kvRanges)
+	}
 	e.kvRanges = kvRanges
 	// Treat temporary table as dummy table, avoid sending distsql request to TiKV.
 	// In a test case IndexReaderExecutor is mocked and e.table is nil.
@@ -464,6 +467,9 @@ func (e *IndexLookUpExecutor) open(ctx context.Context) error {
 
 	e.finished = make(chan struct{})
 	e.resultCh = make(chan *lookupTableTask, atomic.LoadInt32(&LookupTableTaskChannelSize))
+	if e.table.Meta().IsGlobalPartitionTable() {
+		e.kvRanges = newGlobalPartitionRangeBuilder(e.table.Meta()).build(e.ranges, e.kvRanges)
+	}
 
 	var err error
 	if e.corColInIdxSide {
@@ -867,6 +873,7 @@ func (w *indexWorker) extractTaskHandles(ctx context.Context, chk *chunk.Chunk, 
 	if len(handleOffset) == 0 {
 		handleOffset = []int{numColsWithoutPid - 1}
 	}
+	tblInfo := w.idxLookup.table.Meta()
 	handles = make([]kv.Handle, 0, w.batchSize)
 	// PushedLimit would always be nil for CheckIndex or CheckTable, we add this check just for insurance.
 	checkLimit := (w.PushedLimit != nil) && (w.checkIndexValue == nil)
@@ -909,7 +916,7 @@ func (w *indexWorker) extractTaskHandles(ctx context.Context, chk *chunk.Chunk, 
 			if err != nil {
 				return handles, retChk, scannedKeys, err
 			}
-			handles = append(handles, h)
+			handles = append(handles, kv.TryGlobalPartitionHandle(tblInfo, h))
 		}
 		if w.checkIndexValue != nil {
 			if retChk == nil {
@@ -1046,6 +1053,7 @@ func (e *IndexLookUpExecutor) getHandle(row chunk.Row, handleIdx []int,
 			handle = kv.IntHandle(row.GetInt64(handleIdx[0]))
 		}
 	}
+	handle = kv.TryGlobalPartitionHandle(e.table.Meta(), handle)
 	if e.index.Global {
 		pidOffset := row.Len() - 1
 		pid := row.GetInt64(pidOffset)

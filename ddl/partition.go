@@ -374,6 +374,9 @@ func buildTablePartitionInfo(ctx sessionctx.Context, s *ast.PartitionOptions, tb
 }
 
 func buildGlobalPartitionInfo(s *ast.PartitionOptions, tbInfo *model.TableInfo) error {
+	if !tbInfo.PKIsHandle && !tbInfo.IsCommonHandle {
+		return errors.Trace(ErrGlobalPartitionNonClustered)
+	}
 	buf := new(bytes.Buffer)
 	restoreCtx := format.NewRestoreCtx(format.DefaultRestoreFlags, buf)
 	if err := s.GlobalExpr.Restore(restoreCtx); err != nil {
@@ -383,13 +386,19 @@ func buildGlobalPartitionInfo(s *ast.PartitionOptions, tbInfo *model.TableInfo) 
 	globalExprColName := strings.ToLower(strings.Trim(globalExpr, "`"))
 	var found bool
 	for _, col := range tbInfo.Columns {
-		if col.Name.L == globalExprColName && types.IsTypeInteger(col.Tp){
+		if col.Name.L == globalExprColName && types.IsTypeInteger(col.Tp) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		return errors.Trace(ErrWrongExprInPartitionFunc)
+		return errors.Trace(ErrGlobalPartitionInvalidExpression)
+	}
+	// Make sure the global partition expression is the first column in each index.
+	for _, idx := range tbInfo.Indices {
+		if idx.Columns[0].Name.L != globalExprColName {
+			return errors.Trace(ErrGlobalPartitionInvalidIndex)
+		}
 	}
 	tbInfo.Partition = &model.PartitionInfo{
 		GlobalExpr: buf.String(),

@@ -1890,7 +1890,6 @@ func (d *ddl) CreateTableWithInfo(
 	if err := d.assignTableID(tbInfo); err != nil {
 		return errors.Trace(err)
 	}
-
 	if tbInfo.Partition != nil {
 		if err := d.assignPartitionIDs(tbInfo.Partition, is); err != nil {
 			return errors.Trace(err)
@@ -5155,6 +5154,9 @@ func (d *ddl) CreateIndex(ctx sessionctx.Context, ti ast.Ident, keyType ast.Inde
 	}
 
 	tblInfo := t.Meta()
+	if tblInfo.IsGlobalPartitionTable() {
+		return kv.ErrNotImplemented
+	}
 
 	// Build hidden columns if necessary.
 	hiddenCols, err := buildHiddenColumnInfo(ctx, indexPartSpecifications, indexName, t.Meta(), t.Cols())

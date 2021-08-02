@@ -218,6 +218,13 @@ var (
 	// ErrDerivedMustHaveAlias returns when a sub select statement does not have a table alias.
 	ErrDerivedMustHaveAlias = dbterror.ClassDDL.NewStd(mysql.ErrDerivedMustHaveAlias)
 
+	// ErrGlobalPartitionNonClustered returns when a global partition table is not clustered index.
+	ErrGlobalPartitionNonClustered = dbterror.ClassDDL.NewStd(mysql.ErrGlobalPartitionNonClustered)
+	// ErrGlobalPartitionInvalidExpression returns when a global partition table has invalid partition expression.
+	ErrGlobalPartitionInvalidExpression = dbterror.ClassDDL.NewStd(mysql.ErrGlobalPartitionInvalidExpression)
+	// ErrGlobalPartitionInvalidIndex returns when a global partition table has invalid index.
+	ErrGlobalPartitionInvalidIndex = dbterror.ClassDDL.NewStd(mysql.ErrGlobalPartitionInvalidIndex)
+
 	// ErrSequenceRunOut returns when the sequence has been run out.
 	ErrSequenceRunOut = dbterror.ClassDDL.NewStd(mysql.ErrSequenceRunOut)
 	// ErrSequenceInvalidData returns when sequence values are conflicting.

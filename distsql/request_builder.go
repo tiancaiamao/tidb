@@ -487,10 +487,18 @@ func TableHandlesToKVRanges(tid int64, handles []kv.Handle) []kv.KeyRange {
 	krs := make([]kv.KeyRange, 0, len(handles))
 	i := 0
 	for i < len(handles) {
-		if commonHandle, ok := handles[i].(*kv.CommonHandle); ok {
+		h := handles[i]
+		var gpRuleID, partitionID uint32
+		if h.IsGlobalPartition() {
+			gpRuleID, partitionID = h.GlobalPartitionIDs()
+		}
+		if !h.IsInt() {
 			ran := kv.KeyRange{
-				StartKey: tablecodec.EncodeRowKey(tid, commonHandle.Encoded()),
-				EndKey:   tablecodec.EncodeRowKey(tid, kv.Key(commonHandle.Encoded()).Next()),
+				StartKey: tablecodec.EncodeRowKey(tid, h.Encoded()),
+				EndKey:   tablecodec.EncodeRowKey(tid, kv.Key(h.Encoded()).Next()),
+			}
+			if gpRuleID > 0 {
+				ran = tablecodec.PrependGlobalPartitionPrefixForRange(ran, gpRuleID, partitionID)
 			}
 			krs = append(krs, ran)
 			i++
@@ -505,9 +513,14 @@ func TableHandlesToKVRanges(tid int64, handles []kv.Handle) []kv.KeyRange {
 		low := codec.EncodeInt(nil, handles[i].IntValue())
 		high := codec.EncodeInt(nil, handles[j-1].IntValue())
 		high = kv.Key(high).PrefixNext()
-		startKey := tablecodec.EncodeRowKey(tid, low)
-		endKey := tablecodec.EncodeRowKey(tid, high)
-		krs = append(krs, kv.KeyRange{StartKey: startKey, EndKey: endKey})
+		ran := kv.KeyRange{
+			StartKey: tablecodec.EncodeRowKey(tid, low),
+			EndKey:   tablecodec.EncodeRowKey(tid, high),
+		}
+		if gpRuleID > 0 {
+			ran = tablecodec.PrependGlobalPartitionPrefixForRange(ran, gpRuleID, partitionID)
+		}
+		krs = append(krs, ran)
 		i = j
 	}
 	return krs

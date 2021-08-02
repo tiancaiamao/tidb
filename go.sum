@@ -105,6 +105,8 @@ github.com/coocood/parser v0.0.0-20210802051940-be65c70e4169 h1:ODZ4tKm+Zto51/43
 github.com/coocood/parser v0.0.0-20210802051940-be65c70e4169/go.mod h1:Ek0mLKEqUGnQqBw1JnYrJQxsguU433DU68yUbsoeJ7s=
 github.com/coocood/parser v0.0.0-20210802060042-6570784cf8b8 h1:kNvi4gy4XNIPfEBWWoHq/5/d/d/rPngbNbKmuM9Iu+M=
 github.com/coocood/parser v0.0.0-20210802060042-6570784cf8b8/go.mod h1:Ek0mLKEqUGnQqBw1JnYrJQxsguU433DU68yUbsoeJ7s=
+github.com/coocood/parser v0.0.0-20210802104955-98517cdfd8b2 h1:mqd83BQOVR6LE/efjq5VVO4b1EGT43OaBNbTXD0bc9E=
+github.com/coocood/parser v0.0.0-20210802104955-98517cdfd8b2/go.mod h1:Ek0mLKEqUGnQqBw1JnYrJQxsguU433DU68yUbsoeJ7s=
 github.com/coocood/rtutil v0.0.0-20190304133409-c84515f646f2 h1:NnLfQ77q0G4k2Of2c1ceQ0ec6MkLQyDp+IGdVM0D8XM=
 github.com/coocood/rtutil v0.0.0-20190304133409-c84515f646f2/go.mod h1:7qG7YFnOALvsx6tKTNmQot8d7cGFXM9TidzvRFLWYwM=
 github.com/coreos/bbolt v1.3.2/go.mod h1:iRUV2dpdMOn7Bo10OQBFzIJO9kkE559Wcmn+qkEiiKk=

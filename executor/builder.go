@@ -16,6 +16,7 @@ package executor
 import (
 	"bytes"
 	"context"
+	"github.com/pingcap/tidb/tablecodec"
 	"sort"
 	"strconv"
 	"strings"
@@ -2913,6 +2914,11 @@ func (b *executorBuilder) buildTableReader(v *plannercore.PhysicalTableReader) E
 	sctx := b.ctx.GetSessionVars().StmtCtx
 	sctx.TableIDs = append(sctx.TableIDs, ts.Table.ID)
 
+	if ts.Table.IsGlobalPartitionTable() {
+		ret.kvRangeBuilder = kvRangeBuilderForGlobalPartition{sctx: b.ctx, tblInfo: ts.Table}
+		return ret
+	}
+
 	if !b.ctx.GetSessionVars().UseDynamicPartitionPrune() {
 		return ret
 	}
@@ -3690,6 +3696,87 @@ func (h kvRangeBuilderFromRangeAndPartition) buildKeyRange(_ int64, ranges []*ra
 	return ret, nil
 }
 
+type kvRangeBuilderForGlobalPartition struct {
+	sctx    sessionctx.Context
+	tblInfo *model.TableInfo
+}
+
+func (h kvRangeBuilderForGlobalPartition) buildKeyRangeSeparately(ranges []*ranger.Range) ([]int64, [][]kv.KeyRange, error) {
+	panic("implement me")
+}
+
+func (h kvRangeBuilderForGlobalPartition) buildKeyRange(_ int64, ranges []*ranger.Range) ([]kv.KeyRange, error) {
+	kvRanges, err := distsql.TableHandleRangesToKVRanges(h.sctx.GetSessionVars().StmtCtx, []int64{h.tblInfo.ID}, h.tblInfo.IsCommonHandle, ranges, nil)
+	if err != nil {
+		return nil, err
+	}
+	return newGlobalPartitionRangeBuilder(h.tblInfo).build(ranges, kvRanges), nil
+}
+
+type globalPartitionRangeBuilder struct {
+	pi *model.PartitionInfo
+}
+
+func newGlobalPartitionRangeBuilder(tbl *model.TableInfo) globalPartitionRangeBuilder {
+	return globalPartitionRangeBuilder{pi: tbl.Partition}
+}
+
+func (b globalPartitionRangeBuilder) build(ranges []*ranger.Range, kvRanges []kv.KeyRange) []kv.KeyRange {
+	if len(kvRanges) == 0 || tablecodec.IsGlobalPartitionKey(kvRanges[0].StartKey) {
+		// Avoid duplicated build.
+		return kvRanges
+	}
+	results := make([]kv.KeyRange, 0, len(kvRanges))
+	pi := b.pi
+	for i, ran := range kvRanges {
+		if tablecodec.IsGlobalPartitionKey(ran.StartKey) {
+			results = append(results, ran)
+		}
+		rangerRange := ranges[i]
+		if rangerRange.IsFullRange() {
+			results = b.buildAllPartitions(results, ran)
+		} else {
+			lowVal := rangerRange.LowVal[0].GetInt64()
+			highVal := rangerRange.HighVal[0].GetInt64()
+			lowPartitionID := uint32(lowVal) % uint32(pi.Num)
+			highPartitionID := uint32(highVal) % uint32(pi.Num)
+			if highVal-lowVal >= int64(pi.Num) {
+				results = b.buildAllPartitions(results, ran)
+			} else if lowVal == highVal {
+				results = append(results, b.buildPartition(ran, lowPartitionID))
+			} else if lowPartitionID < highPartitionID {
+				for partitionID := lowPartitionID; partitionID <= highPartitionID; partitionID++ {
+					results = append(results, b.buildPartition(ran, partitionID))
+				}
+			} else {
+				for partitionID := uint32(0); partitionID <= highPartitionID; partitionID++ {
+					results = append(results, b.buildPartition(ran, partitionID))
+				}
+				for partitionID := lowPartitionID; partitionID < uint32(b.pi.Num); partitionID++ {
+					results = append(results, b.buildPartition(ran, partitionID))
+				}
+			}
+		}
+	}
+	return results
+}
+
+func (b globalPartitionRangeBuilder) buildAllPartitions(ret []kv.KeyRange, ran kv.KeyRange) []kv.KeyRange {
+	pi := b.pi
+	for partitionID := uint32(0); partitionID < uint32(pi.Num); partitionID++ {
+		start := tablecodec.PrependGlobalPartitionPrefix(ran.StartKey, pi.GlobalID, partitionID)
+		end := tablecodec.PrependGlobalPartitionPrefix(ran.EndKey, pi.GlobalID, partitionID)
+		ret = append(ret, kv.KeyRange{StartKey: start, EndKey: end})
+	}
+	return ret
+}
+
+func (b globalPartitionRangeBuilder) buildPartition(ran kv.KeyRange, partitionID uint32) kv.KeyRange {
+	start := tablecodec.PrependGlobalPartitionPrefix(ran.StartKey, b.pi.GlobalID, partitionID)
+	end := tablecodec.PrependGlobalPartitionPrefix(ran.EndKey, b.pi.GlobalID, partitionID)
+	return kv.KeyRange{StartKey: start, EndKey: end}
+}
+
 func (builder *dataReaderBuilder) buildTableReaderBase(ctx context.Context, e *TableReaderExecutor, reqBuilderWithRange distsql.RequestBuilder) (*TableReaderExecutor, error) {
 	startTS, err := builder.getSnapshotTS()
 	if err != nil {
@@ -4251,7 +4338,7 @@ func (b *executorBuilder) buildBatchPointGet(plan *plannercore.BatchPointGetPlan
 					continue
 				}
 				dedup.Set(handle, true)
-				handles = append(handles, handle)
+				handles = append(handles, kv.TryGlobalPartitionHandle(plan.TblInfo, handle))
 			}
 		} else {
 			for _, value := range plan.IndexValues {
@@ -4275,7 +4362,7 @@ func (b *executorBuilder) buildBatchPointGet(plan *plannercore.BatchPointGetPlan
 					continue
 				}
 				dedup.Set(handle, true)
-				handles = append(handles, handle)
+				handles = append(handles, kv.TryGlobalPartitionHandle(plan.TblInfo, handle))
 			}
 		}
 		e.handles = handles

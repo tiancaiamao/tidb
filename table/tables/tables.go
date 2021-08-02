@@ -146,7 +146,6 @@ func TableFromMeta(allocs autoid.Allocators, tblInfo *model.TableInfo) (table.Ta
 		}
 		return &t, nil
 	}
-
 	return newPartitionedTable(&t, tblInfo)
 }
 
@@ -323,7 +322,7 @@ func (t *TableCommon) UpdateRecord(ctx context.Context, sctx sessionctx.Context,
 	if err != nil {
 		return err
 	}
-
+	h = kv.TryGlobalPartitionHandle(t.meta, h)
 	memBuffer := txn.GetMemBuffer()
 	sh := memBuffer.Staging()
 	defer memBuffer.Cleanup(sh)
@@ -700,6 +699,7 @@ func (t *TableCommon) AddRecord(sctx sessionctx.Context, r []types.Datum, opts .
 			return nil, err
 		}
 	}
+	recordID = kv.TryGlobalPartitionHandle(t.meta, recordID)
 
 	var colIDs, binlogColIDs []int64
 	var row, binlogRow []types.Datum
@@ -1033,6 +1033,7 @@ func GetChangingColVal(ctx sessionctx.Context, cols []*table.Column, col *table.
 
 // RemoveRecord implements table.Table RemoveRecord interface.
 func (t *TableCommon) RemoveRecord(ctx sessionctx.Context, h kv.Handle, r []types.Datum) error {
+	h = kv.TryGlobalPartitionHandle(t.meta, h)
 	err := t.removeRowData(ctx, h)
 	if err != nil {
 		return err

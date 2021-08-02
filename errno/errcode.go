@@ -1048,6 +1048,9 @@ const (
 	ErrPlacementPolicyCheck               = 8236
 	ErrGlobalPartitionRuleExists          = 8237
 	ErrGlobalPartitionRuleNotExists       = 8238
+	ErrGlobalPartitionNonClustered        = 8239
+	ErrGlobalPartitionInvalidIndex        = 8240
+	ErrGlobalPartitionInvalidExpression   = 8241
 
 	// TiKV/PD/TiFlash errors.
 	ErrPDServerTimeout           = 9001
