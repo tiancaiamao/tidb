@@ -3539,7 +3539,7 @@ func (builder *dataReaderBuilder) buildTableReaderForIndexJoin(ctx context.Conte
 	tbInfo := e.table.Meta()
 	if v.IsCommonHandle {
 		if tbInfo.GetPartitionInfo() == nil || !builder.ctx.GetSessionVars().UseDynamicPartitionPrune() {
-			kvRanges, err := buildKvRangesForIndexJoin(e.ctx, getPhysicalTableID(e.table), -1, lookUpContents, indexRanges, keyOff2IdxOff, cwc)
+			kvRanges, err := buildKvRangesForIndexJoin(e.ctx, getPhysicalTableID(e.table), -1, lookUpContents, indexRanges, keyOff2IdxOff, cwc, tbInfo)
 			if err != nil {
 				return nil, err
 			}
@@ -3568,7 +3568,7 @@ func (builder *dataReaderBuilder) buildTableReaderForIndexJoin(ctx context.Conte
 					return nil, err
 				}
 				pid := p.GetPhysicalID()
-				tmp, err := buildKvRangesForIndexJoin(e.ctx, pid, -1, []*indexJoinLookUpContent{content}, indexRanges, keyOff2IdxOff, cwc)
+				tmp, err := buildKvRangesForIndexJoin(e.ctx, pid, -1, []*indexJoinLookUpContent{content}, indexRanges, keyOff2IdxOff, cwc, nil)
 				if err != nil {
 					return nil, err
 				}
@@ -3583,7 +3583,7 @@ func (builder *dataReaderBuilder) buildTableReaderForIndexJoin(ctx context.Conte
 			kvRanges = make([]kv.KeyRange, 0, len(partitions)*len(lookUpContents))
 			for _, p := range partitions {
 				pid := p.GetPhysicalID()
-				tmp, err := buildKvRangesForIndexJoin(e.ctx, pid, -1, lookUpContents, indexRanges, keyOff2IdxOff, cwc)
+				tmp, err := buildKvRangesForIndexJoin(e.ctx, pid, -1, lookUpContents, indexRanges, keyOff2IdxOff, cwc, nil)
 				if err != nil {
 					return nil, err
 				}
@@ -3817,6 +3817,11 @@ func (builder *dataReaderBuilder) buildTableReaderFromHandles(ctx context.Contex
 		if _, ok := handles[0].(kv.PartitionHandle); ok {
 			b.SetPartitionsAndHandles(handles)
 		} else {
+			if e.table.Meta().IsGlobalPartitionTable() {
+				for i := 0; i < len(handles); i++ {
+					handles[i] = kv.TryGlobalPartitionHandle(e.table.Meta(), handles[i])
+				}
+			}
 			b.SetTableHandles(getPhysicalTableID(e.table), handles)
 		}
 	}
@@ -3837,7 +3842,7 @@ func (builder *dataReaderBuilder) buildIndexReaderForIndexJoin(ctx context.Conte
 	}
 	tbInfo := e.table.Meta()
 	if tbInfo.GetPartitionInfo() == nil || !builder.ctx.GetSessionVars().UseDynamicPartitionPrune() {
-		kvRanges, err := buildKvRangesForIndexJoin(e.ctx, e.physicalTableID, e.index.ID, lookUpContents, indexRanges, keyOff2IdxOff, cwc)
+		kvRanges, err := buildKvRangesForIndexJoin(e.ctx, e.physicalTableID, e.index.ID, lookUpContents, indexRanges, keyOff2IdxOff, cwc, tbInfo)
 		if err != nil {
 			return nil, err
 		}
@@ -3884,7 +3889,7 @@ func (builder *dataReaderBuilder) buildIndexLookUpReaderForIndexJoin(ctx context
 
 	tbInfo := e.table.Meta()
 	if tbInfo.GetPartitionInfo() == nil || !builder.ctx.GetSessionVars().UseDynamicPartitionPrune() {
-		e.kvRanges, err = buildKvRangesForIndexJoin(e.ctx, getPhysicalTableID(e.table), e.index.ID, lookUpContents, indexRanges, keyOff2IdxOff, cwc)
+		e.kvRanges, err = buildKvRangesForIndexJoin(e.ctx, getPhysicalTableID(e.table), e.index.ID, lookUpContents, indexRanges, keyOff2IdxOff, cwc, e.table.Meta())
 		if err != nil {
 			return nil, err
 		}
@@ -3996,7 +4001,7 @@ func buildRangesForIndexJoin(ctx sessionctx.Context, lookUpContents []*indexJoin
 
 // buildKvRangesForIndexJoin builds kv ranges for index join when the inner plan is index scan plan.
 func buildKvRangesForIndexJoin(ctx sessionctx.Context, tableID, indexID int64, lookUpContents []*indexJoinLookUpContent,
-	ranges []*ranger.Range, keyOff2IdxOff []int, cwc *plannercore.ColWithCmpFuncManager) (_ []kv.KeyRange, err error) {
+	ranges []*ranger.Range, keyOff2IdxOff []int, cwc *plannercore.ColWithCmpFuncManager, tblInfo *model.TableInfo) (_ []kv.KeyRange, err error) {
 	kvRanges := make([]kv.KeyRange, 0, len(ranges)*len(lookUpContents))
 	lastPos := len(ranges[0].LowVal) - 1
 	sc := ctx.GetSessionVars().StmtCtx
@@ -4019,6 +4024,9 @@ func buildKvRangesForIndexJoin(ctx sessionctx.Context, tableID, indexID int64, l
 			}
 			if err != nil {
 				return nil, err
+			}
+			if tblInfo != nil && tblInfo.IsGlobalPartitionTable() {
+				tmpKvRanges = newGlobalPartitionRangeBuilder(tblInfo).build(ranges, tmpKvRanges)
 			}
 			kvRanges = append(kvRanges, tmpKvRanges...)
 			continue
@@ -4051,9 +4059,17 @@ func buildKvRangesForIndexJoin(ctx sessionctx.Context, tableID, indexID int64, l
 	}
 	// Index id is -1 means it's a common handle.
 	if indexID == -1 {
-		return distsql.CommonHandleRangesToKVRanges(ctx.GetSessionVars().StmtCtx, []int64{tableID}, tmpDatumRanges)
+		kvRanges, err = distsql.CommonHandleRangesToKVRanges(ctx.GetSessionVars().StmtCtx, []int64{tableID}, tmpDatumRanges)
+	} else {
+		kvRanges, err = distsql.IndexRangesToKVRanges(ctx.GetSessionVars().StmtCtx, tableID, indexID, tmpDatumRanges, nil)
 	}
-	return distsql.IndexRangesToKVRanges(ctx.GetSessionVars().StmtCtx, tableID, indexID, tmpDatumRanges, nil)
+	if err != nil {
+		return nil, err
+	}
+	if tblInfo != nil && tblInfo.IsGlobalPartitionTable() {
+		kvRanges = newGlobalPartitionRangeBuilder(tblInfo).build(tmpDatumRanges, kvRanges)
+	}
+	return kvRanges, nil
 }
 
 func (b *executorBuilder) buildWindow(v *plannercore.PhysicalWindow) Executor {

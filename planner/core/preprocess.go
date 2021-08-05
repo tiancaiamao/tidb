@@ -616,6 +616,9 @@ func (p *preprocessor) checkAutoIncrement(stmt *ast.CreateTableStmt) {
 				autoIncrementMustBeKey = false
 			}
 		}
+		if stmt.Partition != nil && stmt.Partition.GlobalName != "" {
+			autoIncrementMustBeKey = false
+		}
 		if autoIncrementMustBeKey && !isKey {
 			p.err = autoid.ErrWrongAutoKey.GenWithStackByArgs()
 		}
