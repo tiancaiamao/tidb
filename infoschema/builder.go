@@ -53,10 +53,10 @@ func (b *Builder) ApplyDiff(m *meta.Meta, diff *model.SchemaDiff) ([]int64, erro
 		return b.applyDropSchema(diff.SchemaID), nil
 	case model.ActionModifySchemaCharsetAndCollate:
 		return nil, b.applyModifySchemaCharsetAndCollate(m, diff)
-	case model.ActionCreateGlobalPartitionRule:
-		return nil, b.applyCreateGlobalPartitionRule(m, diff)
-	case model.ActionDropGlobalPartitionRule:
-		delete(b.is.globalPartitionRuleMap, diff.GPRuleID)
+	case model.ActionCreateShardingRule:
+		return nil, b.applyCreateShardingRule(m, diff)
+	case model.ActionDropShardingRule:
+		delete(b.is.globalPartitionRuleMap, diff.ShardingRuleID)
 		return nil, nil
 	}
 	roDBInfo, ok := b.is.SchemaByID(diff.SchemaID)
@@ -313,8 +313,8 @@ func (b *Builder) copySortedTablesBucket(bucketIdx int) {
 	b.is.sortedTablesBuckets[bucketIdx] = newSortedTables
 }
 
-func (b *Builder) applyCreateGlobalPartitionRule(m *meta.Meta, diff *model.SchemaDiff) error {
-	gpRule, err := m.GetGlobalPartitionRule(diff.GPRuleID)
+func (b *Builder) applyCreateShardingRule(m *meta.Meta, diff *model.SchemaDiff) error {
+	gpRule, err := m.GetShardingRule(diff.ShardingRuleID)
 	if err != nil {
 		return err
 	}
@@ -322,8 +322,8 @@ func (b *Builder) applyCreateGlobalPartitionRule(m *meta.Meta, diff *model.Schem
 	return nil
 }
 
-func (b *Builder) applyDropGlobalPartitionRule(m *meta.Meta, diff *model.SchemaDiff) error {
-	delete(b.is.globalPartitionRuleMap, diff.GPRuleID)
+func (b *Builder) applyDropShardingRule(m *meta.Meta, diff *model.SchemaDiff) error {
+	delete(b.is.globalPartitionRuleMap, diff.ShardingRuleID)
 	return nil
 }
 
@@ -502,7 +502,7 @@ func (b *Builder) InitWithOldInfoSchema(oldSchema InfoSchema) *Builder {
 	oldIS := oldSchema.(*infoSchema)
 	b.is.schemaMetaVersion = oldIS.schemaMetaVersion
 	b.copySchemasMap(oldIS)
-	b.copyGlobalPartitionRuleMap(oldIS)
+	b.copyShardingRuleMap(oldIS)
 	b.copyBundlesMap(oldIS)
 	copy(b.is.sortedTablesBuckets, oldIS.sortedTablesBuckets)
 	return b
@@ -514,7 +514,7 @@ func (b *Builder) copySchemasMap(oldIS *infoSchema) {
 	}
 }
 
-func (b *Builder) copyGlobalPartitionRuleMap(oldIS *infoSchema) {
+func (b *Builder) copyShardingRuleMap(oldIS *infoSchema) {
 	for k, v := range oldIS.globalPartitionRuleMap {
 		b.is.globalPartitionRuleMap[k] = v
 	}
@@ -545,7 +545,7 @@ func (b *Builder) copySchemaTables(dbName string) *model.DBInfo {
 
 // InitWithDBInfos initializes an empty new InfoSchema with a slice of DBInfo, all placement rules, and schema version.
 func (b *Builder) InitWithDBInfos(dbInfos []*model.DBInfo, bundles []*placement.Bundle,
-	gpRules []*model.GlobalPartitionRule, schemaVersion int64) (*Builder, error) {
+	gpRules []*model.ShardingRule, schemaVersion int64) (*Builder, error) {
 	info := b.is
 	info.schemaMetaVersion = schemaVersion
 	for _, bundle := range bundles {
@@ -618,7 +618,7 @@ func NewBuilder(store kv.Storage) *Builder {
 		store: store,
 		is: &infoSchema{
 			schemaMap:              map[string]*schemaTables{},
-			globalPartitionRuleMap: map[uint32]*model.GlobalPartitionRule{},
+			globalPartitionRuleMap: map[uint32]*model.ShardingRule{},
 			ruleBundleMap:          map[string]*placement.Bundle{},
 			sortedTablesBuckets:    make([]sortedTables, bucketCount),
 		},

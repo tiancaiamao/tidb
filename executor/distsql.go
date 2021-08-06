@@ -275,8 +275,8 @@ func (e *IndexReaderExecutor) open(ctx context.Context, kvRanges []kv.KeyRange) 
 		collExec := true
 		e.dagPB.CollectExecutionSummaries = &collExec
 	}
-	if e.table.Meta().IsGlobalPartitionTable() {
-		kvRanges = newGlobalPartitionRangeBuilder(e.table.Meta()).build(e.ranges, kvRanges)
+	if e.table.Meta().IsShardingTable() {
+		kvRanges = newShardingRangeBuilder(e.table.Meta()).build(e.ranges, kvRanges)
 	}
 	e.kvRanges = kvRanges
 	// Treat temporary table as dummy table, avoid sending distsql request to TiKV.
@@ -467,8 +467,8 @@ func (e *IndexLookUpExecutor) open(ctx context.Context) error {
 
 	e.finished = make(chan struct{})
 	e.resultCh = make(chan *lookupTableTask, atomic.LoadInt32(&LookupTableTaskChannelSize))
-	if e.table.Meta().IsGlobalPartitionTable() {
-		e.kvRanges = newGlobalPartitionRangeBuilder(e.table.Meta()).build(e.ranges, e.kvRanges)
+	if e.table.Meta().IsShardingTable() {
+		e.kvRanges = newShardingRangeBuilder(e.table.Meta()).build(e.ranges, e.kvRanges)
 	}
 
 	var err error
@@ -916,7 +916,7 @@ func (w *indexWorker) extractTaskHandles(ctx context.Context, chk *chunk.Chunk, 
 			if err != nil {
 				return handles, retChk, scannedKeys, err
 			}
-			handles = append(handles, kv.TryGlobalPartitionHandle(tblInfo, h))
+			handles = append(handles, kv.TryShardingHandle(tblInfo, h))
 		}
 		if w.checkIndexValue != nil {
 			if retChk == nil {
@@ -1053,7 +1053,7 @@ func (e *IndexLookUpExecutor) getHandle(row chunk.Row, handleIdx []int,
 			handle = kv.IntHandle(row.GetInt64(handleIdx[0]))
 		}
 	}
-	handle = kv.TryGlobalPartitionHandle(e.table.Meta(), handle)
+	handle = kv.TryShardingHandle(e.table.Meta(), handle)
 	if e.index.Global {
 		pidOffset := row.Len() - 1
 		pid := row.GetInt64(pidOffset)

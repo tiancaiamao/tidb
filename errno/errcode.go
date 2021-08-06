@@ -1046,11 +1046,11 @@ const (
 	ErrInvalidPlacementSpec               = 8234
 	ErrDDLReorgElementNotExist            = 8235
 	ErrPlacementPolicyCheck               = 8236
-	ErrGlobalPartitionRuleExists          = 8237
-	ErrGlobalPartitionRuleNotExists       = 8238
-	ErrGlobalPartitionNonClustered        = 8239
-	ErrGlobalPartitionInvalidIndex        = 8240
-	ErrGlobalPartitionInvalidExpression   = 8241
+	ErrShardingRuleExists          = 8237
+	ErrShardingRuleNotExists       = 8238
+	ErrShardingNonClustered        = 8239
+	ErrShardingInvalidIndex        = 8240
+	ErrShardingInvalidExpression   = 8241
 
 	// TiKV/PD/TiFlash errors.
 	ErrPDServerTimeout           = 9001

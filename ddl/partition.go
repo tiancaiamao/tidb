@@ -299,8 +299,8 @@ func buildTablePartitionInfo(ctx sessionctx.Context, s *ast.PartitionOptions, tb
 	if s == nil {
 		return nil
 	}
-	if s.GlobalName != "" {
-		return buildGlobalPartitionInfo(s, tbInfo)
+	if s.ShardingRuleName != "" {
+		return buildShardingInfo(s, tbInfo)
 	}
 
 	if strings.EqualFold(ctx.GetSessionVars().EnableTablePartition, "OFF") {
@@ -373,13 +373,13 @@ func buildTablePartitionInfo(ctx sessionctx.Context, s *ast.PartitionOptions, tb
 	return nil
 }
 
-func buildGlobalPartitionInfo(s *ast.PartitionOptions, tbInfo *model.TableInfo) error {
+func buildShardingInfo(s *ast.PartitionOptions, tbInfo *model.TableInfo) error {
 	if !tbInfo.PKIsHandle && !tbInfo.IsCommonHandle {
-		return errors.Trace(ErrGlobalPartitionNonClustered)
+		return errors.Trace(ErrShardingNonClustered)
 	}
 	buf := new(bytes.Buffer)
 	restoreCtx := format.NewRestoreCtx(format.DefaultRestoreFlags, buf)
-	if err := s.GlobalExpr.Restore(restoreCtx); err != nil {
+	if err := s.ShardingExpr.Restore(restoreCtx); err != nil {
 		return err
 	}
 	globalExpr := buf.String()
@@ -392,17 +392,17 @@ func buildGlobalPartitionInfo(s *ast.PartitionOptions, tbInfo *model.TableInfo) 
 		}
 	}
 	if !found {
-		return errors.Trace(ErrGlobalPartitionInvalidExpression)
+		return errors.Trace(ErrShardingInvalidExpression)
 	}
 	// Make sure the global partition expression is the first column in each index.
 	for _, idx := range tbInfo.Indices {
 		if idx.Columns[0].Name.L != globalExprColName {
-			return errors.Trace(ErrGlobalPartitionInvalidIndex)
+			return errors.Trace(ErrShardingInvalidIndex)
 		}
 	}
 	tbInfo.Partition = &model.PartitionInfo{
 		GlobalExpr: buf.String(),
-		GlobalName: model.NewCIStr(s.GlobalName),
+		GlobalName: model.NewCIStr(s.ShardingRuleName),
 	}
 	return nil
 }

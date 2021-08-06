@@ -197,10 +197,10 @@ func (e *DDLExec) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 		err = e.executeDropSequence(x)
 	case *ast.AlterSequenceStmt:
 		err = e.executeAlterSequence(x)
-	case *ast.CreateGlobalPartitionRuleStmt:
-		err = e.executeCreateGlobalPartitionRule(x)
-	case *ast.DropGlobalPartitionRuleStmt:
-		err = e.executeDropGlobalPartitionRule(x)
+	case *ast.CreateShardingRuleStmt:
+		err = e.executeCreateShardingRule(x)
+	case *ast.DropShardingRuleStmt:
+		err = e.executeDropShardingRule(x)
 	}
 	if err != nil {
 		// If the owner return ErrTableNotExists error when running this DDL, it may be caused by schema changed,
@@ -797,10 +797,10 @@ func (e *DDLExec) executeAlterSequence(s *ast.AlterSequenceStmt) error {
 	return domain.GetDomain(e.ctx).DDL().AlterSequence(e.ctx, s)
 }
 
-func (e *DDLExec) executeCreateGlobalPartitionRule(s *ast.CreateGlobalPartitionRuleStmt) error {
-	return domain.GetDomain(e.ctx).DDL().CreateGlobalPartitionRule(e.ctx, s)
+func (e *DDLExec) executeCreateShardingRule(s *ast.CreateShardingRuleStmt) error {
+	return domain.GetDomain(e.ctx).DDL().CreateShardingRule(e.ctx, s)
 }
 
-func (e *DDLExec) executeDropGlobalPartitionRule(s *ast.DropGlobalPartitionRuleStmt) error {
-	return domain.GetDomain(e.ctx).DDL().DropGlobalPartitionRule(e.ctx, s)
+func (e *DDLExec) executeDropShardingRule(s *ast.DropShardingRuleStmt) error {
+	return domain.GetDomain(e.ctx).DDL().DropShardingRule(e.ctx, s)
 }

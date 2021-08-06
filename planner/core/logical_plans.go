@@ -1162,7 +1162,7 @@ func ExtractCorColumnsBySchema4PhysicalPlan(p PhysicalPlan, schema *expression.S
 type ShowContents struct {
 	Tp        ast.ShowStmtType // Databases/Tables/Columns/....
 	DBName    string
-	GPRName   string          // Used for show global partition rule.
+	ShardingRuleName   string          // Used for show global partition rule.
 	Table     *ast.TableName  // Used for showing columns.
 	Column    *ast.ColumnName // Used for `desc table column`.
 	IndexName model.CIStr

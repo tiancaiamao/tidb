@@ -726,7 +726,7 @@ func (b *executorBuilder) buildShow(v *plannercore.PhysicalShow) Executor {
 		baseExecutor: newBaseExecutor(b.ctx, v.Schema(), v.ID()),
 		Tp:           v.Tp,
 		DBName:       model.NewCIStr(v.DBName),
-		GPRName:      model.NewCIStr(v.GPRName),
+		GPRName:      model.NewCIStr(v.ShardingRuleName),
 		Table:        v.Table,
 		Column:       v.Column,
 		IndexName:    v.IndexName,
@@ -2914,8 +2914,8 @@ func (b *executorBuilder) buildTableReader(v *plannercore.PhysicalTableReader) E
 	sctx := b.ctx.GetSessionVars().StmtCtx
 	sctx.TableIDs = append(sctx.TableIDs, ts.Table.ID)
 
-	if ts.Table.IsGlobalPartitionTable() {
-		ret.kvRangeBuilder = kvRangeBuilderForGlobalPartition{sctx: b.ctx, tblInfo: ts.Table}
+	if ts.Table.IsShardingTable() {
+		ret.kvRangeBuilder = kvRangeBuilderForSharding{sctx: b.ctx, tblInfo: ts.Table}
 		return ret
 	}
 
@@ -3696,40 +3696,40 @@ func (h kvRangeBuilderFromRangeAndPartition) buildKeyRange(_ int64, ranges []*ra
 	return ret, nil
 }
 
-type kvRangeBuilderForGlobalPartition struct {
+type kvRangeBuilderForSharding struct {
 	sctx    sessionctx.Context
 	tblInfo *model.TableInfo
 }
 
-func (h kvRangeBuilderForGlobalPartition) buildKeyRangeSeparately(ranges []*ranger.Range) ([]int64, [][]kv.KeyRange, error) {
+func (h kvRangeBuilderForSharding) buildKeyRangeSeparately(ranges []*ranger.Range) ([]int64, [][]kv.KeyRange, error) {
 	panic("implement me")
 }
 
-func (h kvRangeBuilderForGlobalPartition) buildKeyRange(_ int64, ranges []*ranger.Range) ([]kv.KeyRange, error) {
+func (h kvRangeBuilderForSharding) buildKeyRange(_ int64, ranges []*ranger.Range) ([]kv.KeyRange, error) {
 	kvRanges, err := distsql.TableHandleRangesToKVRanges(h.sctx.GetSessionVars().StmtCtx, []int64{h.tblInfo.ID}, h.tblInfo.IsCommonHandle, ranges, nil)
 	if err != nil {
 		return nil, err
 	}
-	return newGlobalPartitionRangeBuilder(h.tblInfo).build(ranges, kvRanges), nil
+	return newShardingRangeBuilder(h.tblInfo).build(ranges, kvRanges), nil
 }
 
 type globalPartitionRangeBuilder struct {
 	pi *model.PartitionInfo
 }
 
-func newGlobalPartitionRangeBuilder(tbl *model.TableInfo) globalPartitionRangeBuilder {
+func newShardingRangeBuilder(tbl *model.TableInfo) globalPartitionRangeBuilder {
 	return globalPartitionRangeBuilder{pi: tbl.Partition}
 }
 
 func (b globalPartitionRangeBuilder) build(ranges []*ranger.Range, kvRanges []kv.KeyRange) []kv.KeyRange {
-	if len(kvRanges) == 0 || tablecodec.IsGlobalPartitionKey(kvRanges[0].StartKey) {
+	if len(kvRanges) == 0 || tablecodec.IsShardingKey(kvRanges[0].StartKey) {
 		// Avoid duplicated build.
 		return kvRanges
 	}
 	results := make([]kv.KeyRange, 0, len(kvRanges))
 	pi := b.pi
 	for i, ran := range kvRanges {
-		if tablecodec.IsGlobalPartitionKey(ran.StartKey) {
+		if tablecodec.IsShardingKey(ran.StartKey) {
 			results = append(results, ran)
 		}
 		rangerRange := ranges[i]
@@ -3764,16 +3764,16 @@ func (b globalPartitionRangeBuilder) build(ranges []*ranger.Range, kvRanges []kv
 func (b globalPartitionRangeBuilder) buildAllPartitions(ret []kv.KeyRange, ran kv.KeyRange) []kv.KeyRange {
 	pi := b.pi
 	for partitionID := uint32(0); partitionID < uint32(pi.Num); partitionID++ {
-		start := tablecodec.PrependGlobalPartitionPrefix(ran.StartKey, pi.GlobalID, partitionID)
-		end := tablecodec.PrependGlobalPartitionPrefix(ran.EndKey, pi.GlobalID, partitionID)
+		start := tablecodec.PrependShardingPrefix(ran.StartKey, pi.GlobalID, partitionID)
+		end := tablecodec.PrependShardingPrefix(ran.EndKey, pi.GlobalID, partitionID)
 		ret = append(ret, kv.KeyRange{StartKey: start, EndKey: end})
 	}
 	return ret
 }
 
 func (b globalPartitionRangeBuilder) buildPartition(ran kv.KeyRange, partitionID uint32) kv.KeyRange {
-	start := tablecodec.PrependGlobalPartitionPrefix(ran.StartKey, b.pi.GlobalID, partitionID)
-	end := tablecodec.PrependGlobalPartitionPrefix(ran.EndKey, b.pi.GlobalID, partitionID)
+	start := tablecodec.PrependShardingPrefix(ran.StartKey, b.pi.GlobalID, partitionID)
+	end := tablecodec.PrependShardingPrefix(ran.EndKey, b.pi.GlobalID, partitionID)
 	return kv.KeyRange{StartKey: start, EndKey: end}
 }
 
@@ -3817,9 +3817,9 @@ func (builder *dataReaderBuilder) buildTableReaderFromHandles(ctx context.Contex
 		if _, ok := handles[0].(kv.PartitionHandle); ok {
 			b.SetPartitionsAndHandles(handles)
 		} else {
-			if e.table.Meta().IsGlobalPartitionTable() {
+			if e.table.Meta().IsShardingTable() {
 				for i := 0; i < len(handles); i++ {
-					handles[i] = kv.TryGlobalPartitionHandle(e.table.Meta(), handles[i])
+					handles[i] = kv.TryShardingHandle(e.table.Meta(), handles[i])
 				}
 			}
 			b.SetTableHandles(getPhysicalTableID(e.table), handles)
@@ -4025,8 +4025,8 @@ func buildKvRangesForIndexJoin(ctx sessionctx.Context, tableID, indexID int64, l
 			if err != nil {
 				return nil, err
 			}
-			if tblInfo != nil && tblInfo.IsGlobalPartitionTable() {
-				tmpKvRanges = newGlobalPartitionRangeBuilder(tblInfo).build(ranges, tmpKvRanges)
+			if tblInfo != nil && tblInfo.IsShardingTable() {
+				tmpKvRanges = newShardingRangeBuilder(tblInfo).build(ranges, tmpKvRanges)
 			}
 			kvRanges = append(kvRanges, tmpKvRanges...)
 			continue
@@ -4066,8 +4066,8 @@ func buildKvRangesForIndexJoin(ctx sessionctx.Context, tableID, indexID int64, l
 	if err != nil {
 		return nil, err
 	}
-	if tblInfo != nil && tblInfo.IsGlobalPartitionTable() {
-		kvRanges = newGlobalPartitionRangeBuilder(tblInfo).build(tmpDatumRanges, kvRanges)
+	if tblInfo != nil && tblInfo.IsShardingTable() {
+		kvRanges = newShardingRangeBuilder(tblInfo).build(tmpDatumRanges, kvRanges)
 	}
 	return kvRanges, nil
 }
@@ -4354,7 +4354,7 @@ func (b *executorBuilder) buildBatchPointGet(plan *plannercore.BatchPointGetPlan
 					continue
 				}
 				dedup.Set(handle, true)
-				handles = append(handles, kv.TryGlobalPartitionHandle(plan.TblInfo, handle))
+				handles = append(handles, kv.TryShardingHandle(plan.TblInfo, handle))
 			}
 		} else {
 			for _, value := range plan.IndexValues {
@@ -4378,7 +4378,7 @@ func (b *executorBuilder) buildBatchPointGet(plan *plannercore.BatchPointGetPlan
 					continue
 				}
 				dedup.Set(handle, true)
-				handles = append(handles, kv.TryGlobalPartitionHandle(plan.TblInfo, handle))
+				handles = append(handles, kv.TryShardingHandle(plan.TblInfo, handle))
 			}
 		}
 		e.handles = handles

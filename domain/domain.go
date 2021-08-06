@@ -143,7 +143,7 @@ func (do *Domain) loadInfoSchema(startTS uint64) (infoschema.InfoSchema, bool, i
 		return nil, false, currentSchemaVersion, nil, err
 	}
 
-	gpRules, err := m.ListGlobalPartitionRules()
+	gpRules, err := m.ListShardingRules()
 	if err != nil {
 		return nil, false, currentSchemaVersion, nil, err
 	}

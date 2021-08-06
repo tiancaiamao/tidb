@@ -214,10 +214,10 @@ func (e *ShowExec) fetchAll(ctx context.Context) error {
 		return e.fetchShowBRIE(ast.BRIEKindBackup)
 	case ast.ShowRestores:
 		return e.fetchShowBRIE(ast.BRIEKindRestore)
-	case ast.ShowGlobalPartitionRules:
-		return e.fetchShowGlobalPartitionRules()
-	case ast.ShowCreateGlobalPartitionRule:
-		return e.fetchShowCreateGlobalPartitionRule()
+	case ast.ShowShardingRules:
+		return e.fetchShowShardingRules()
+	case ast.ShowCreateShardingRule:
+		return e.fetchShowCreateShardingRule()
 	}
 	return nil
 }
@@ -342,8 +342,8 @@ func (e *ShowExec) fetchShowDatabases() error {
 	return nil
 }
 
-func (e *ShowExec) fetchShowGlobalPartitionRules() error {
-	rules := e.is.AllGlobalPartitionRules()
+func (e *ShowExec) fetchShowShardingRules() error {
+	rules := e.is.AllShardingRules()
 	for _, rule := range rules {
 		e.appendRow([]interface{}{rule.Name.O})
 	}
@@ -1180,7 +1180,7 @@ func appendPartitionInfo(partitionInfo *model.PartitionInfo, buf *bytes.Buffer) 
 		return
 	}
 	if partitionInfo.GlobalName.L != "" {
-		fmt.Fprintf(buf, "\n GLOBAL PARTITION BY `%s` (%s)", partitionInfo.GlobalName.O, partitionInfo.GlobalExpr)
+		fmt.Fprintf(buf, "\n SHARDING BY `%s` (%s)", partitionInfo.GlobalName.O, partitionInfo.GlobalExpr)
 		return
 	}
 	if partitionInfo.Type == model.PartitionTypeHash {
@@ -1251,13 +1251,13 @@ func appendPartitionInfo(partitionInfo *model.PartitionInfo, buf *bytes.Buffer) 
 	}
 }
 
-func (e *ShowExec) fetchShowCreateGlobalPartitionRule() error {
-	gpRule, ok := e.is.GlobalPartitionRuleByName(e.GPRName)
+func (e *ShowExec) fetchShowCreateShardingRule() error {
+	gpRule, ok := e.is.ShardingRuleByName(e.GPRName)
 	if !ok {
-		return meta.ErrGlobalPartitionRuleNotExists.GenWithStackByArgs()
+		return meta.ErrShardingRuleNotExists.GenWithStackByArgs()
 	}
 	buf := new(bytes.Buffer)
-	fmt.Fprintf(buf, "CREATE GLOBAL PARTITION RULE `%s` HASH PARTITIONS %d", gpRule.Name.O, gpRule.Num)
+	fmt.Fprintf(buf, "CREATE SHARDING RULE `%s` HASH PARTITIONS %d", gpRule.Name.O, gpRule.Num)
 	e.appendRow([]interface{}{gpRule.Name.O, buf.String()})
 	return nil
 }

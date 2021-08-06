@@ -6,14 +6,14 @@ import (
 	"github.com/pingcap/tidb/meta"
 )
 
-func onCreateGlobalPartitionRule(t *meta.Meta, job *model.Job) (ver int64, err error) {
-	rule := new(model.GlobalPartitionRule)
+func onCreateShardingRule(t *meta.Meta, job *model.Job) (ver int64, err error) {
+	rule := new(model.ShardingRule)
 	if err := job.DecodeArgs(rule); err != nil {
 		// Invalid arguments, cancel this job.
 		job.State = model.JobStateCancelled
 		return ver, errors.Trace(err)
 	}
-	if err := t.CreateGlobalPartitionRule(rule); err != nil {
+	if err := t.CreateShardingRule(rule); err != nil {
 		job.State = model.JobStateCancelled
 		return ver, errors.Trace(err)
 	}
@@ -26,14 +26,14 @@ func onCreateGlobalPartitionRule(t *meta.Meta, job *model.Job) (ver int64, err e
 	return ver, nil
 }
 
-func onDropGlobalPartitionRule(t *meta.Meta, job *model.Job) (ver int64, err error) {
-	rule := new(model.GlobalPartitionRule)
+func onDropShardingRule(t *meta.Meta, job *model.Job) (ver int64, err error) {
+	rule := new(model.ShardingRule)
 	if err := job.DecodeArgs(rule); err != nil {
 		// Invalid arguments, cancel this job.
 		job.State = model.JobStateCancelled
 		return ver, errors.Trace(err)
 	}
-	if err := t.DropGlobalPartitionRule(rule.ID); err != nil {
+	if err := t.DropShardingRule(rule.ID); err != nil {
 		job.State = model.JobStateCancelled
 		return ver, errors.Trace(err)
 	}

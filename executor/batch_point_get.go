@@ -332,7 +332,7 @@ func (e *BatchPointGetExec) initialize(ctx context.Context) error {
 			if err1 != nil {
 				return err1
 			}
-			e.handles = append(e.handles, kv.TryGlobalPartitionHandle(e.tblInfo, handle))
+			e.handles = append(e.handles, kv.TryShardingHandle(e.tblInfo, handle))
 			if rc {
 				indexKeys = append(indexKeys, key)
 			}

@@ -233,7 +233,7 @@ func (e *PointGetExecutor) Next(ctx context.Context, req *chunk.Chunk) error {
 			if err != nil {
 				return err
 			}
-			e.handle = kv.TryGlobalPartitionHandle(e.tblInfo, e.handle)
+			e.handle = kv.TryShardingHandle(e.tblInfo, e.handle)
 		} else {
 			e.idxKey, err = EncodeUniqueIndexKey(e.ctx, e.tblInfo, e.idxInfo, e.idxVals, tblID)
 			if err != nil && !kv.ErrNotExist.Equal(err) {
@@ -275,7 +275,7 @@ func (e *PointGetExecutor) Next(ctx context.Context, req *chunk.Chunk) error {
 			if err != nil {
 				return err
 			}
-			iv = kv.TryGlobalPartitionHandle(e.tblInfo, iv)
+			iv = kv.TryShardingHandle(e.tblInfo, iv)
 			e.handle = iv
 
 			// The injection is used to simulate following scenario:
@@ -293,7 +293,7 @@ func (e *PointGetExecutor) Next(ctx context.Context, req *chunk.Chunk) error {
 			})
 		}
 	} else {
-		e.handle = kv.TryGlobalPartitionHandle(e.tblInfo, e.handle)
+		e.handle = kv.TryShardingHandle(e.tblInfo, e.handle)
 	}
 
 	key := tablecodec.EncodeRowKeyWithHandle(tblID, e.handle)
@@ -473,9 +473,9 @@ func EncodeUniqueIndexKey(ctx sessionctx.Context, tblInfo *model.TableInfo, idxI
 		return nil, err
 	}
 	seekKey := tablecodec.EncodeIndexSeekKey(tID, idxInfo.ID, encodedIdxVals)
-	if tblInfo.IsGlobalPartitionTable() {
+	if tblInfo.IsShardingTable() {
 		partitionID := uint32(idxVals[0].GetInt64()) % uint32(tblInfo.Partition.Num)
-		seekKey = tablecodec.PrependGlobalPartitionPrefix(seekKey, tblInfo.Partition.GlobalID, partitionID)
+		seekKey = tablecodec.PrependShardingPrefix(seekKey, tblInfo.Partition.GlobalID, partitionID)
 	}
 	return seekKey, nil
 }

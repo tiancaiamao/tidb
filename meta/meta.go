@@ -83,10 +83,10 @@ var (
 	ErrTableNotExists = dbterror.ClassMeta.NewStd(mysql.ErrNoSuchTable)
 	// ErrDDLReorgElementNotExist is the error for reorg element not exists.
 	ErrDDLReorgElementNotExist = dbterror.ClassMeta.NewStd(errno.ErrDDLReorgElementNotExist)
-	// ErrGlobalPartitionRuleExists is the error for global partition rule exists.
-	ErrGlobalPartitionRuleExists = dbterror.ClassMeta.NewStd(errno.ErrGlobalPartitionRuleExists)
-	// ErrGlobalPartitionRuleNotExists is the error for global partition rule not exists.
-	ErrGlobalPartitionRuleNotExists = dbterror.ClassMeta.NewStd(errno.ErrGlobalPartitionRuleNotExists)
+	// ErrShardingRuleExists is the error for global partition rule exists.
+	ErrShardingRuleExists = dbterror.ClassMeta.NewStd(errno.ErrShardingRuleExists)
+	// ErrShardingRuleNotExists is the error for global partition rule not exists.
+	ErrShardingRuleNotExists = dbterror.ClassMeta.NewStd(errno.ErrShardingRuleNotExists)
 )
 
 // Meta is for handling meta information in a transaction.
@@ -176,24 +176,24 @@ func (m *Meta) gprKey(ruleID uint32) []byte {
 	return []byte(fmt.Sprintf("%d", ruleID))
 }
 
-// GenGlobalPartitionRuleID generates a global partition rule id.
-func (m *Meta) GenGlobalPartitionRuleID() (int64, error) {
+// GenShardingRuleID generates a global partition rule id.
+func (m *Meta) GenShardingRuleID() (int64, error) {
 	globalIDMutex.Lock()
 	defer globalIDMutex.Unlock()
 	return m.txn.Inc([]byte(mGPRID), 1)
 }
 
-// GetGlobalPartitionRule gets the global partition rule by id.
-func (m *Meta) GetGlobalPartitionRule(id uint32) (*model.GlobalPartitionRule, error) {
+// GetShardingRule gets the global partition rule by id.
+func (m *Meta) GetShardingRule(id uint32) (*model.ShardingRule, error) {
 	ruleKey := m.gprKey(id)
 	data, err := m.txn.HGet(mGPRs, ruleKey)
 	if err != nil {
 		return nil, err
 	}
 	if len(data) == 0 {
-		return nil, ErrGlobalPartitionRuleNotExists.GenWithStackByArgs()
+		return nil, ErrShardingRuleNotExists.GenWithStackByArgs()
 	}
-	rule := new(model.GlobalPartitionRule)
+	rule := new(model.ShardingRule)
 	err = json.Unmarshal(data, rule)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -319,7 +319,7 @@ func (m *Meta) checkDBNotExists(dbKey []byte) error {
 func (m *Meta) checkGPRNotExists(gprKey []byte) error {
 	v, err := m.txn.HGet(mGPRs, gprKey)
 	if err == nil && v != nil {
-		err = ErrGlobalPartitionRuleExists.GenWithStackByArgs()
+		err = ErrShardingRuleExists.GenWithStackByArgs()
 	}
 	return errors.Trace(err)
 }
@@ -327,7 +327,7 @@ func (m *Meta) checkGPRNotExists(gprKey []byte) error {
 func (m *Meta) checkGPRExists(grpKey []byte) error {
 	v, err := m.txn.HGet(mGPRs, grpKey)
 	if err == nil && v == nil {
-		err = ErrGlobalPartitionRuleNotExists.GenWithStackByArgs()
+		err = ErrShardingRuleNotExists.GenWithStackByArgs()
 	}
 	return errors.Trace(err)
 }
@@ -380,8 +380,8 @@ func (m *Meta) UpdateDatabase(dbInfo *model.DBInfo) error {
 	return m.txn.HSet(mDBs, dbKey, data)
 }
 
-// CreateGlobalPartitionRule creates a global partition rule.
-func (m *Meta) CreateGlobalPartitionRule(rule *model.GlobalPartitionRule) error {
+// CreateShardingRule creates a global partition rule.
+func (m *Meta) CreateShardingRule(rule *model.ShardingRule) error {
 	ruleKey := m.gprKey(rule.ID)
 	if err := m.checkGPRNotExists(ruleKey); err != nil {
 		return errors.Trace(err)
@@ -393,8 +393,8 @@ func (m *Meta) CreateGlobalPartitionRule(rule *model.GlobalPartitionRule) error 
 	return m.txn.HSet(mGPRs, ruleKey, data)
 }
 
-// updateGlobalPartitionRule updates a global partition rule.
-func (m *Meta) updateGlobalPartitionRule(rule *model.GlobalPartitionRule) error {
+// updateShardingRule updates a global partition rule.
+func (m *Meta) updateShardingRule(rule *model.ShardingRule) error {
 	ruleKey := m.gprKey(rule.ID)
 	if err := m.checkGPRExists(ruleKey); err != nil {
 		return errors.Trace(err)
@@ -434,7 +434,7 @@ func (m *Meta) CreateTableOrView(dbID int64, tableInfo *model.TableInfo) error {
 }
 
 func (m *Meta) updateGlobalRuleAddTableID(globalID uint32, tableID int64) error {
-	rule, err := m.GetGlobalPartitionRule(globalID)
+	rule, err := m.GetShardingRule(globalID)
 	if err != nil {
 		return err
 	}
@@ -444,11 +444,11 @@ func (m *Meta) updateGlobalRuleAddTableID(globalID uint32, tableID int64) error 
 		}
 	}
 	rule.TableIDs = append(rule.TableIDs, tableID)
-	return m.updateGlobalPartitionRule(rule)
+	return m.updateShardingRule(rule)
 }
 
 func (m *Meta) updateGlobalRuleRemoveTableID(globalID uint32, tableID int64) error {
-	rule, err := m.GetGlobalPartitionRule(globalID)
+	rule, err := m.GetShardingRule(globalID)
 	if err != nil {
 		return err
 	}
@@ -459,7 +459,7 @@ func (m *Meta) updateGlobalRuleRemoveTableID(globalID uint32, tableID int64) err
 		}
 	}
 	rule.TableIDs = newIDs
-	return m.updateGlobalPartitionRule(rule)
+	return m.updateShardingRule(rule)
 }
 
 // CreateTableAndSetAutoID creates a table with tableInfo in database,
@@ -523,9 +523,9 @@ func (m *Meta) DropDatabase(dbID int64) error {
 	return nil
 }
 
-// DropGlobalPartitionRule drops global partition rule.
-func (m *Meta) DropGlobalPartitionRule(ruleID uint32) error {
-	rule, err := m.GetGlobalPartitionRule(ruleID)
+// DropShardingRule drops global partition rule.
+func (m *Meta) DropShardingRule(ruleID uint32) error {
+	rule, err := m.GetShardingRule(ruleID)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -665,15 +665,15 @@ func (m *Meta) ListDatabases() ([]*model.DBInfo, error) {
 	return dbs, nil
 }
 
-// ListGlobalPartitionRules show all global partition rules.
-func (m *Meta) ListGlobalPartitionRules() ([]*model.GlobalPartitionRule, error) {
+// ListShardingRules show all global partition rules.
+func (m *Meta) ListShardingRules() ([]*model.ShardingRule, error) {
 	res, err := m.txn.HGetAll(mGPRs)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	rules := make([]*model.GlobalPartitionRule, 0, len(res))
+	rules := make([]*model.ShardingRule, 0, len(res))
 	for _, r := range res {
-		rule := &model.GlobalPartitionRule{}
+		rule := &model.ShardingRule{}
 		err = json.Unmarshal(r.Value, rule)
 		if err != nil {
 			return nil, errors.Trace(err)

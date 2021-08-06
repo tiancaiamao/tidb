@@ -151,10 +151,10 @@ type Handle interface {
 	Data() ([]types.Datum, error)
 	// String implements the fmt.Stringer interface.
 	String() string
-	// IsGlobalPartition return is the handle is a global partition handle.
-	IsGlobalPartition() bool
-	// GlobalPartitionIDs returns the global partition rule id and partition id of the handle.
-	GlobalPartitionIDs() (ruleID, partitionID uint32)
+	// IsSharding return is the handle is a global partition handle.
+	IsSharding() bool
+	// ShardingIDs returns the global partition rule id and partition id of the handle.
+	ShardingIDs() (ruleID, partitionID uint32)
 }
 
 // IntHandle implement the Handle interface for int64 type handle.
@@ -226,13 +226,13 @@ func (ih IntHandle) String() string {
 	return strconv.FormatInt(int64(ih), 10)
 }
 
-// IsGlobalPartition implements the Handle interface.
-func (ih IntHandle) IsGlobalPartition() bool {
+// IsSharding implements the Handle interface.
+func (ih IntHandle) IsSharding() bool {
 	return false
 }
 
-// GlobalPartitionIDs implements the Handle interface.
-func (ih IntHandle) GlobalPartitionIDs() (ruleID, partitionID uint32) {
+// ShardingIDs implements the Handle interface.
+func (ih IntHandle) ShardingIDs() (ruleID, partitionID uint32) {
 	return 0, 0
 }
 
@@ -355,13 +355,13 @@ func (ch *CommonHandle) String() string {
 	return fmt.Sprintf("{%s}", strings.Join(strs, ", "))
 }
 
-// IsGlobalPartition implements the Handle interface.
-func (ch *CommonHandle) IsGlobalPartition() bool {
+// IsSharding implements the Handle interface.
+func (ch *CommonHandle) IsSharding() bool {
 	return false
 }
 
-// GlobalPartitionIDs implements the Handle interface.
-func (ch *CommonHandle) GlobalPartitionIDs() (uint32, uint32) {
+// ShardingIDs implements the Handle interface.
+func (ch *CommonHandle) ShardingIDs() (uint32, uint32) {
 	return 0, 0
 }
 
@@ -475,26 +475,26 @@ func (ph PartitionHandle) Compare(h Handle) int {
 	panic("PartitonHandle compares to non-parition Handle")
 }
 
-type GlobalPartitionHandle struct {
+type ShardingHandle struct {
 	Handle
 	ruleID      uint32
 	partitionID uint32
 }
 
-func NewGlobalPartitionHandle(h Handle, ruleID, partitionID uint32) Handle {
-	return GlobalPartitionHandle{Handle: h, ruleID: ruleID, partitionID: partitionID}
+func NewShardingHandle(h Handle, ruleID, partitionID uint32) Handle {
+	return ShardingHandle{Handle: h, ruleID: ruleID, partitionID: partitionID}
 }
 
-func (ph GlobalPartitionHandle) Equal(h Handle) bool {
-	if ph2, ok := h.(GlobalPartitionHandle); ok {
+func (ph ShardingHandle) Equal(h Handle) bool {
+	if ph2, ok := h.(ShardingHandle); ok {
 		return ph.ruleID == ph2.ruleID && ph.partitionID == ph2.partitionID && ph.Handle.Equal(ph2.Handle)
 	}
 	return false
 }
 
 // Compare implements the Handle interface.
-func (ph GlobalPartitionHandle) Compare(h Handle) int {
-	if ph2, ok := h.(GlobalPartitionHandle); ok {
+func (ph ShardingHandle) Compare(h Handle) int {
+	if ph2, ok := h.(ShardingHandle); ok {
 		if ph.ruleID < ph2.ruleID {
 			return -1
 		}
@@ -512,24 +512,24 @@ func (ph GlobalPartitionHandle) Compare(h Handle) int {
 		}
 		return ph.Handle.Compare(ph2.Handle)
 	}
-	panic("GlobalPartitionHandle compares to non-global-partition Handle")
+	panic("ShardingHandle compares to non-global-partition Handle")
 }
 
-func (ph GlobalPartitionHandle) IsGlobalPartition() bool {
+func (ph ShardingHandle) IsSharding() bool {
 	return true
 }
 
-func (ph GlobalPartitionHandle) GlobalPartitionIDs() (uint32, uint32) {
+func (ph ShardingHandle) ShardingIDs() (uint32, uint32) {
 	return ph.ruleID, ph.partitionID
 }
 
-func (ph GlobalPartitionHandle) Len() int {
+func (ph ShardingHandle) Len() int {
 	return 9 + ph.Handle.Len()
 }
 
-// TryGlobalPartitionHandle try to convert a handle to global partition handle
-func TryGlobalPartitionHandle(tbl *model.TableInfo, handle Handle) Handle {
-	if !tbl.IsGlobalPartitionTable() || handle.IsGlobalPartition() {
+// TryShardingHandle try to convert a handle to global partition handle
+func TryShardingHandle(tbl *model.TableInfo, handle Handle) Handle {
+	if !tbl.IsShardingTable() || handle.IsSharding() {
 		return handle
 	}
 	ruleID := tbl.Partition.GlobalID
@@ -543,5 +543,5 @@ func TryGlobalPartitionHandle(tbl *model.TableInfo, handle Handle) Handle {
 		}
 		partitionID = uint32(d.GetInt64()) % uint32(tbl.Partition.Num)
 	}
-	return NewGlobalPartitionHandle(handle, ruleID, partitionID)
+	return NewShardingHandle(handle, ruleID, partitionID)
 }

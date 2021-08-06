@@ -114,8 +114,8 @@ type DDL interface {
 	CreateSequence(ctx sessionctx.Context, stmt *ast.CreateSequenceStmt) error
 	DropSequence(ctx sessionctx.Context, tableIdent ast.Ident, ifExists bool) (err error)
 	AlterSequence(ctx sessionctx.Context, stmt *ast.AlterSequenceStmt) error
-	CreateGlobalPartitionRule(ctx sessionctx.Context, stmt *ast.CreateGlobalPartitionRuleStmt) error
-	DropGlobalPartitionRule(ctx sessionctx.Context, stmt *ast.DropGlobalPartitionRuleStmt) error
+	CreateShardingRule(ctx sessionctx.Context, stmt *ast.CreateShardingRuleStmt) error
+	DropShardingRule(ctx sessionctx.Context, stmt *ast.DropShardingRuleStmt) error
 
 	// CreateSchemaWithInfo creates a database (schema) given its database info.
 	//

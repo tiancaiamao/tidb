@@ -251,12 +251,12 @@ func (p *preprocessor) Enter(in ast.Node) (out ast.Node, skipChildren bool) {
 		p.stmtTp = TypeDrop
 		p.flag |= inCreateOrDropTable
 		p.checkDropSequenceGrammar(node)
-	case *ast.CreateGlobalPartitionRuleStmt:
+	case *ast.CreateShardingRuleStmt:
 		p.stmtTp = TypeCreate
-		p.resolveCreateGlobalPartitionRuleStmt(node)
-	case *ast.DropGlobalPartitionRuleStmt:
+		p.resolveCreateShardingRuleStmt(node)
+	case *ast.DropShardingRuleStmt:
 		p.stmtTp = TypeDrop
-		p.checkDropGlobalPartitionRuleGrammar(node)
+		p.checkDropShardingRuleGrammar(node)
 	case *ast.FuncCastExpr:
 		p.checkFuncCastExpr(node)
 	case *ast.FuncCallExpr:
@@ -616,7 +616,7 @@ func (p *preprocessor) checkAutoIncrement(stmt *ast.CreateTableStmt) {
 				autoIncrementMustBeKey = false
 			}
 		}
-		if stmt.Partition != nil && stmt.Partition.GlobalName != "" {
+		if stmt.Partition != nil && stmt.Partition.ShardingRuleName != "" {
 			autoIncrementMustBeKey = false
 		}
 		if autoIncrementMustBeKey && !isKey {
@@ -849,7 +849,7 @@ func (p *preprocessor) checkDropSequenceGrammar(stmt *ast.DropSequenceStmt) {
 	p.checkDropTableNames(stmt.Sequences)
 }
 
-func (p *preprocessor) checkDropGlobalPartitionRuleGrammar(stmt *ast.DropGlobalPartitionRuleStmt) {
+func (p *preprocessor) checkDropShardingRuleGrammar(stmt *ast.DropShardingRuleStmt) {
 	if isIncorrectName(stmt.Name) {
 		p.err = ddl.ErrWrongDBName.GenWithStackByArgs(stmt.Name)
 	}
@@ -1476,7 +1476,7 @@ func (p *preprocessor) resolveCreateSequenceStmt(stmt *ast.CreateSequenceStmt) {
 	}
 }
 
-func (p *preprocessor) resolveCreateGlobalPartitionRuleStmt(stmt *ast.CreateGlobalPartitionRuleStmt) {
+func (p *preprocessor) resolveCreateShardingRuleStmt(stmt *ast.CreateShardingRuleStmt) {
 	if isIncorrectName(stmt.Name) {
 		p.err = ddl.ErrWrongDBName.GenWithStackByArgs(stmt.Name)
 		return

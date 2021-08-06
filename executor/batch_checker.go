@@ -121,7 +121,7 @@ func getKeysNeedCheckOneRow(ctx sessionctx.Context, t table.Table, row []types.D
 	}
 	var handleKey *keyValueWithDupInfo
 	if handle != nil {
-		handle = kv.TryGlobalPartitionHandle(t.Meta(), handle)
+		handle = kv.TryShardingHandle(t.Meta(), handle)
 		fn := func() string {
 			var str string
 			var err error
@@ -179,9 +179,9 @@ func getKeysNeedCheckOneRow(ctx sessionctx.Context, t table.Table, row []types.D
 		if !distinct {
 			continue
 		}
-		if t.Meta().IsGlobalPartitionTable() {
+		if t.Meta().IsShardingTable() {
 			partitionID := uint32(colVals[0].GetInt64()) % uint32(t.Meta().Partition.Num)
-			key = tablecodec.PrependGlobalPartitionPrefix(key, t.Meta().Partition.GlobalID, partitionID)
+			key = tablecodec.PrependShardingPrefix(key, t.Meta().Partition.GlobalID, partitionID)
 		}
 		colValStr, err1 := formatDataForDupError(colVals)
 		if err1 != nil {
@@ -241,7 +241,7 @@ func formatDataForDupError(data []types.Datum) (string, error) {
 // t could be a normal table or a partition, but it must not be a PartitionedTable.
 func getOldRow(ctx context.Context, sctx sessionctx.Context, txn kv.Transaction, t table.Table, handle kv.Handle,
 	genExprs []expression.Expression) ([]types.Datum, error) {
-	handle = kv.TryGlobalPartitionHandle(t.Meta(), handle)
+	handle = kv.TryShardingHandle(t.Meta(), handle)
 	oldValue, err := txn.Get(ctx, tablecodec.EncodeRecordKey(t.RecordPrefix(), handle))
 	if err != nil {
 		return nil, err

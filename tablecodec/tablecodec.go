@@ -72,8 +72,8 @@ const (
 	// See rowcodec.Encoder.Encode and rowcodec.row.toBytes
 	RestoreDataFlag byte = rowcodec.CodecVer
 
-	GlobalPartitionFirstByte byte = 'p'
-	GlobalPartitionPrefixLen      = 9
+	ShardingFirstByte byte = 'p'
+	ShardingPrefixLen      = 9
 )
 
 // TableSplitKeyLen is the length of key 't{table_id}' which is used for table split.
@@ -95,17 +95,17 @@ func EncodeRowKey(tableID int64, encodedHandle []byte) kv.Key {
 // EncodeRowKeyWithHandle encodes the table id, row handle into a kv.Key
 func EncodeRowKeyWithHandle(tableID int64, handle kv.Handle) kv.Key {
 	key := EncodeRowKey(tableID, handle.Encoded())
-	if handle.IsGlobalPartition() {
-		ruleID, partitionID := handle.GlobalPartitionIDs()
-		key = PrependGlobalPartitionPrefix(key, ruleID, partitionID)
+	if handle.IsSharding() {
+		ruleID, partitionID := handle.ShardingIDs()
+		key = PrependShardingPrefix(key, ruleID, partitionID)
 	}
 	return key
 }
 
 // CutRowKeyPrefix cuts the row key prefix.
 func CutRowKeyPrefix(key kv.Key) []byte {
-	if IsGlobalPartitionKey(key) {
-		key = key[GlobalPartitionPrefixLen:]
+	if IsShardingKey(key) {
+		key = key[ShardingPrefixLen:]
 	}
 	return key[prefixLen:]
 }
@@ -113,8 +113,8 @@ func CutRowKeyPrefix(key kv.Key) []byte {
 // EncodeRecordKey encodes the recordPrefix, row handle into a kv.Key.
 func EncodeRecordKey(recordPrefix kv.Key, h kv.Handle) kv.Key {
 	buf := make([]byte, 0, len(recordPrefix)+h.Len())
-	if h.IsGlobalPartition() {
-		buf = appendGlobalPartitionPrefix(buf, h)
+	if h.IsSharding() {
+		buf = appendShardingPrefix(buf, h)
 	}
 	buf = append(buf, recordPrefix...)
 	buf = append(buf, h.Encoded()...)
@@ -136,9 +136,9 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle kv.Handle, err error) {
 	}
 	k := key
 	var globalRuleID, partitionID uint32
-	if IsGlobalPartitionKey(key) {
-		globalRuleID, partitionID = DecodeGlobalPartitionIDs(key)
-		key = key[GlobalPartitionPrefixLen:]
+	if IsShardingKey(key) {
+		globalRuleID, partitionID = DecodeShardingIDs(key)
+		key = key[ShardingPrefixLen:]
 	}
 	if !hasTablePrefix(key) {
 		return 0, nil, errInvalidRecordKey.GenWithStack("invalid record key - %q", k)
@@ -163,7 +163,7 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle kv.Handle, err error) {
 		}
 		handle = kv.IntHandle(intHandle)
 		if globalRuleID != 0 {
-			handle = kv.NewGlobalPartitionHandle(handle, globalRuleID, partitionID)
+			handle = kv.NewShardingHandle(handle, globalRuleID, partitionID)
 		}
 		return tableID, handle, nil
 	}
@@ -172,7 +172,7 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle kv.Handle, err error) {
 		return 0, nil, errInvalidRecordKey.GenWithStack("invalid record key - %q %v", k, err)
 	}
 	if globalRuleID != 0 {
-		handle = kv.NewGlobalPartitionHandle(handle, globalRuleID, partitionID)
+		handle = kv.NewShardingHandle(handle, globalRuleID, partitionID)
 	}
 	return tableID, handle, nil
 }
@@ -180,8 +180,8 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle kv.Handle, err error) {
 // DecodeIndexKey decodes the key and gets the tableID, indexID, indexValues.
 func DecodeIndexKey(key kv.Key) (tableID int64, indexID int64, indexValues []string, err error) {
 	k := key
-	if IsGlobalPartitionKey(key) {
-		key = key[GlobalPartitionPrefixLen:]
+	if IsShardingKey(key) {
+		key = key[ShardingPrefixLen:]
 	}
 	tableID, indexID, isRecord, err := DecodeKeyHead(key)
 	if err != nil {
@@ -245,8 +245,8 @@ func DecodeMetaKey(ek kv.Key) (key []byte, field []byte, err error) {
 func DecodeKeyHead(key kv.Key) (tableID int64, indexID int64, isRecordKey bool, err error) {
 	isRecordKey = false
 	k := key
-	if IsGlobalPartitionKey(key) {
-		key = key[GlobalPartitionPrefixLen:]
+	if IsShardingKey(key) {
+		key = key[ShardingPrefixLen:]
 	}
 	if !key.HasPrefix(tablePrefix) {
 		err = errInvalidKey.GenWithStack("invalid key - %q", k)
@@ -279,16 +279,16 @@ func DecodeKeyHead(key kv.Key) (tableID int64, indexID int64, isRecordKey bool, 
 	return
 }
 
-func IsGlobalPartitionKey(key kv.Key) bool {
-	return len(key) > GlobalPartitionPrefixLen && key[0] == GlobalPartitionFirstByte
+func IsShardingKey(key kv.Key) bool {
+	return len(key) > ShardingPrefixLen && key[0] == ShardingFirstByte
 }
 
-func DecodeGlobalPartitionIDs(key kv.Key) (uint32, uint32) {
+func DecodeShardingIDs(key kv.Key) (uint32, uint32) {
 	return binary.BigEndian.Uint32(key[1:]), binary.BigEndian.Uint32(key[5:])
 }
 
-func appendGlobalPartitionPrefix(buf []byte, h kv.Handle) []byte {
-	ruleID, partID := h.GlobalPartitionIDs()
+func appendShardingPrefix(buf []byte, h kv.Handle) []byte {
+	ruleID, partID := h.ShardingIDs()
 	buf = append(buf, 'p')
 	buf = append(buf, make([]byte, 8)...)
 	binary.BigEndian.PutUint32(buf[1:], ruleID)
@@ -296,27 +296,27 @@ func appendGlobalPartitionPrefix(buf []byte, h kv.Handle) []byte {
 	return buf
 }
 
-// PrependGlobalPartitionPrefix prepends global partition prefix to the key.
-func PrependGlobalPartitionPrefix(key kv.Key, ruleID, partitionID uint32) kv.Key {
-	newKey := make(kv.Key, GlobalPartitionPrefixLen, GlobalPartitionPrefixLen+len(key))
-	newKey[0] = GlobalPartitionFirstByte
+// PrependShardingPrefix prepends global partition prefix to the key.
+func PrependShardingPrefix(key kv.Key, ruleID, partitionID uint32) kv.Key {
+	newKey := make(kv.Key, ShardingPrefixLen, ShardingPrefixLen+len(key))
+	newKey[0] = ShardingFirstByte
 	binary.BigEndian.PutUint32(newKey[1:], ruleID)
 	binary.BigEndian.PutUint32(newKey[5:], partitionID)
 	return append(newKey, key...)
 }
 
-// PrependGlobalPartitionPrefix prepends global partition prefix to the key.
-func PrependGlobalPartitionPrefixForRange(ran kv.KeyRange, ruleID, partitionID uint32) kv.KeyRange {
+// PrependShardingPrefix prepends global partition prefix to the key.
+func PrependShardingPrefixForRange(ran kv.KeyRange, ruleID, partitionID uint32) kv.KeyRange {
 	return kv.KeyRange{
-		StartKey: PrependGlobalPartitionPrefix(ran.StartKey, ruleID, partitionID),
-		EndKey:   PrependGlobalPartitionPrefix(ran.EndKey, ruleID, partitionID),
+		StartKey: PrependShardingPrefix(ran.StartKey, ruleID, partitionID),
+		EndKey:   PrependShardingPrefix(ran.EndKey, ruleID, partitionID),
 	}
 }
 
 // DecodeTableID decodes the table ID of the key, if the key is not table key, returns 0.
 func DecodeTableID(key kv.Key) int64 {
-	if IsGlobalPartitionKey(key) {
-		key = key[GlobalPartitionPrefixLen:]
+	if IsShardingKey(key) {
+		key = key[ShardingPrefixLen:]
 	}
 	if !key.HasPrefix(tablePrefix) {
 		return 0
@@ -331,9 +331,9 @@ func DecodeTableID(key kv.Key) int64 {
 // DecodeRowKey decodes the key and gets the handle.
 func DecodeRowKey(key kv.Key) (kv.Handle, error) {
 	var ruleID, partitionID uint32
-	if IsGlobalPartitionKey(key) {
-		ruleID, partitionID = DecodeGlobalPartitionIDs(key)
-		key = key[GlobalPartitionPrefixLen:]
+	if IsShardingKey(key) {
+		ruleID, partitionID = DecodeShardingIDs(key)
+		key = key[ShardingPrefixLen:]
 	}
 	if len(key) < RecordRowKeyLen || !hasTablePrefix(key) || !hasRecordPrefixSep(key[prefixLen-2:]) {
 		return kv.IntHandle(0), errInvalidKey.GenWithStack("invalid key - %q", key)
@@ -342,7 +342,7 @@ func DecodeRowKey(key kv.Key) (kv.Handle, error) {
 		u := binary.BigEndian.Uint64(key[prefixLen:])
 		var h kv.Handle = kv.IntHandle(codec.DecodeCmpUintToInt(u))
 		if ruleID != 0 {
-			h = kv.NewGlobalPartitionHandle(h, ruleID, partitionID)
+			h = kv.NewShardingHandle(h, ruleID, partitionID)
 		}
 		return h, nil
 	}
@@ -351,7 +351,7 @@ func DecodeRowKey(key kv.Key) (kv.Handle, error) {
 		return nil, err
 	}
 	if ruleID != 0 {
-		return kv.NewGlobalPartitionHandle(h, ruleID, partitionID), nil
+		return kv.NewShardingHandle(h, ruleID, partitionID), nil
 	}
 	return h, nil
 }
@@ -722,8 +722,8 @@ func EncodeIndexSeekKey(tableID int64, idxID int64, encodedValue []byte) kv.Key 
 // The returned value b is the remaining bytes of the key which would be empty if it is unique index or handle data
 // if it is non-unique index.
 func CutIndexKey(key kv.Key, colIDs []int64) (values map[int64][]byte, b []byte, err error) {
-	if IsGlobalPartitionKey(key) {
-		key = key[GlobalPartitionPrefixLen:]
+	if IsShardingKey(key) {
+		key = key[ShardingPrefixLen:]
 	}
 	b = key[prefixLen+idLen:]
 	values = make(map[int64][]byte, len(colIDs))
@@ -740,8 +740,8 @@ func CutIndexKey(key kv.Key, colIDs []int64) (values map[int64][]byte, b []byte,
 
 // CutIndexPrefix cuts the index prefix.
 func CutIndexPrefix(key kv.Key) []byte {
-	if IsGlobalPartitionKey(key) {
-		key = key[GlobalPartitionPrefixLen:]
+	if IsShardingKey(key) {
+		key = key[ShardingPrefixLen:]
 	}
 	return key[prefixLen+idLen:]
 }
@@ -750,8 +750,8 @@ func CutIndexPrefix(key kv.Key) []byte {
 // The returned value b is the remaining bytes of the key which would be empty if it is unique index or handle data
 // if it is non-unique index.
 func CutIndexKeyNew(key kv.Key, length int) (values [][]byte, b []byte, err error) {
-	if IsGlobalPartitionKey(key) {
-		key = key[GlobalPartitionPrefixLen:]
+	if IsShardingKey(key) {
+		key = key[ShardingPrefixLen:]
 	}
 	b = key[prefixLen+idLen:]
 	values = make([][]byte, 0, length)
@@ -770,8 +770,8 @@ func CutIndexKeyNew(key kv.Key, length int) (values [][]byte, b []byte, err erro
 // The returned value b is the remaining bytes of the key which would be empty if it is unique index or handle data
 // if it is non-unique index.
 func CutCommonHandle(key kv.Key, length int) (values [][]byte, b []byte, err error) {
-	if IsGlobalPartitionKey(key) {
-		key = key[GlobalPartitionPrefixLen:]
+	if IsShardingKey(key) {
+		key = key[ShardingPrefixLen:]
 	}
 	b = key[prefixLen:]
 	values = make([][]byte, 0, length)
@@ -976,9 +976,9 @@ func DecodeIndexKV(key, value []byte, colsLen int, hdStatus HandleStatus, column
 // DecodeIndexHandle uses to decode the handle from index key/value.
 func DecodeIndexHandle(key, value []byte, colsLen int) (kv.Handle, error) {
 	var ruleID, partitionID uint32
-	if IsGlobalPartitionKey(key) {
-		ruleID, partitionID = DecodeGlobalPartitionIDs(key)
-		key = key[GlobalPartitionPrefixLen:]
+	if IsShardingKey(key) {
+		ruleID, partitionID = DecodeShardingIDs(key)
+		key = key[ShardingPrefixLen:]
 	}
 	_, b, err := CutIndexKeyNew(key, colsLen)
 	if err != nil {
@@ -991,7 +991,7 @@ func DecodeIndexHandle(key, value []byte, colsLen int) (kv.Handle, error) {
 			return nil, err
 		}
 		if ruleID > 0 {
-			h = kv.NewGlobalPartitionHandle(h, ruleID, partitionID)
+			h = kv.NewShardingHandle(h, ruleID, partitionID)
 		}
 		return h, nil
 	} else if len(value) >= 8 {
@@ -1000,7 +1000,7 @@ func DecodeIndexHandle(key, value []byte, colsLen int) (kv.Handle, error) {
 			return nil, err
 		}
 		if ruleID > 0 {
-			h = kv.NewGlobalPartitionHandle(h, ruleID, partitionID)
+			h = kv.NewShardingHandle(h, ruleID, partitionID)
 		}
 		return h, nil
 	}
@@ -1086,16 +1086,16 @@ func GenTableIndexPrefix(tableID int64) kv.Key {
 
 // IsRecordKey is used to check whether the key is an record key.
 func IsRecordKey(k []byte) bool {
-	if IsGlobalPartitionKey(k) {
-		k = k[GlobalPartitionPrefixLen:]
+	if IsShardingKey(k) {
+		k = k[ShardingPrefixLen:]
 	}
 	return len(k) > 11 && k[0] == 't' && k[10] == 'r'
 }
 
 // IsIndexKey is used to check whether the key is an index key.
 func IsIndexKey(k []byte) bool {
-	if IsGlobalPartitionKey(k) {
-		k = k[GlobalPartitionPrefixLen:]
+	if IsShardingKey(k) {
+		k = k[ShardingPrefixLen:]
 	}
 	return len(k) > 11 && k[0] == 't' && k[10] == 'i'
 }
@@ -1103,8 +1103,8 @@ func IsIndexKey(k []byte) bool {
 // IsUntouchedIndexKValue uses to check whether the key is index key, and the value is untouched,
 // since the untouched index key/value is no need to commit.
 func IsUntouchedIndexKValue(k, v []byte) bool {
-	if IsGlobalPartitionKey(k) {
-		k = k[GlobalPartitionPrefixLen:]
+	if IsShardingKey(k) {
+		k = k[ShardingPrefixLen:]
 	}
 	if !IsIndexKey(k) {
 		return false
@@ -1134,8 +1134,8 @@ func GenTablePrefix(tableID int64) kv.Key {
 // TruncateToRowKeyLen truncates the key to row key length if the key is longer than row key.
 func TruncateToRowKeyLen(key kv.Key) kv.Key {
 	length := RecordRowKeyLen
-	if IsGlobalPartitionKey(key) {
-		length += GlobalPartitionPrefixLen
+	if IsShardingKey(key) {
+		length += ShardingPrefixLen
 	}
 	if len(key) > length {
 		return key[:length]
@@ -1185,8 +1185,8 @@ func GenIndexKey(sc *stmtctx.StatementContext, tblInfo *model.TableInfo, idxInfo
 	// using col_name(length) syntax to specify an index prefix length.
 	TruncateIndexValues(tblInfo, idxInfo, indexedValues)
 	key = GetIndexKeyBuf(buf, RecordRowKeyLen+len(indexedValues)*9+9)
-	if h.IsGlobalPartition() {
-		key = appendGlobalPartitionPrefix(key, h)
+	if h.IsSharding() {
+		key = appendShardingPrefix(key, h)
 	}
 	key = appendTableIndexPrefix(key, phyTblID)
 	key = codec.EncodeInt(key, idxInfo.ID)

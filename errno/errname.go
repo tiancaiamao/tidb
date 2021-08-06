@@ -1038,11 +1038,11 @@ var MySQLErrName = map[uint16]*mysql.ErrMessage{
 	ErrTableOptionUnionUnsupported:         mysql.Message("CREATE/ALTER table with union option is not supported", nil),
 	ErrTableOptionInsertMethodUnsupported:  mysql.Message("CREATE/ALTER table with insert method option is not supported", nil),
 
-	ErrGlobalPartitionRuleExists:        mysql.Message("Global partition rule already exists", nil),
-	ErrGlobalPartitionRuleNotExists:     mysql.Message("Global partition rule not exist", nil),
-	ErrGlobalPartitionNonClustered:      mysql.Message("Global partition only supports clustered index table", nil),
-	ErrGlobalPartitionInvalidExpression: mysql.Message("Global partition only supports single integer column partition expression", nil),
-	ErrGlobalPartitionInvalidIndex:      mysql.Message("Global partition only supports index with partition column as the first column", nil),
+	ErrShardingRuleExists:        mysql.Message("Sharding rule already exists", nil),
+	ErrShardingRuleNotExists:     mysql.Message("Sharding rule not exist", nil),
+	ErrShardingNonClustered:      mysql.Message("Sharding only supports clustered index table", nil),
+	ErrShardingInvalidExpression: mysql.Message("Sharding only supports single integer column partition expression", nil),
+	ErrShardingInvalidIndex:      mysql.Message("Sharding only supports index with partition column as the first column", nil),
 
 	ErrBRIEBackupFailed:  mysql.Message("Backup failed: %s", nil),
 	ErrBRIERestoreFailed: mysql.Message("Restore failed: %s", nil),

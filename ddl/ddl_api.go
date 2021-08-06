@@ -1768,9 +1768,9 @@ func (d *ddl) assignTableID(tbInfo *model.TableInfo) error {
 
 func (d *ddl) assignPartitionIDs(pi *model.PartitionInfo, is infoschema.InfoSchema) error {
 	if pi.GlobalName.L != "" {
-		rule, ok := is.GlobalPartitionRuleByName(pi.GlobalName)
+		rule, ok := is.ShardingRuleByName(pi.GlobalName)
 		if !ok {
-			return meta.ErrGlobalPartitionRuleNotExists.GenWithStackByArgs()
+			return meta.ErrShardingRuleNotExists.GenWithStackByArgs()
 		}
 		pi.GlobalID = rule.ID
 		pi.Num = rule.Num
@@ -5154,7 +5154,7 @@ func (d *ddl) CreateIndex(ctx sessionctx.Context, ti ast.Ident, keyType ast.Inde
 	}
 
 	tblInfo := t.Meta()
-	if tblInfo.IsGlobalPartitionTable() {
+	if tblInfo.IsShardingTable() {
 		return kv.ErrNotImplemented
 	}
 
@@ -5936,27 +5936,27 @@ func (d *ddl) DropSequence(ctx sessionctx.Context, ti ast.Ident, ifExists bool) 
 	return errors.Trace(err)
 }
 
-func (d *ddl) CreateGlobalPartitionRule(ctx sessionctx.Context, stmt *ast.CreateGlobalPartitionRuleStmt) error {
+func (d *ddl) CreateShardingRule(ctx sessionctx.Context, stmt *ast.CreateShardingRuleStmt) error {
 	is := d.GetInfoSchemaWithInterceptor(ctx)
-	_, ok := is.GlobalPartitionRuleByName(model.NewCIStr(stmt.Name))
+	_, ok := is.ShardingRuleByName(model.NewCIStr(stmt.Name))
 	if ok {
-		return meta.ErrGlobalPartitionRuleExists.GenWithStackByArgs()
+		return meta.ErrShardingRuleExists.GenWithStackByArgs()
 	}
 	var id int64
 	err := kv.RunInNewTxn(context.Background(), d.store, true, func(ctx context.Context, txn kv.Transaction) error {
 		m := meta.NewMeta(txn)
 		var err error
-		id, err = m.GenGlobalPartitionRuleID()
+		id, err = m.GenShardingRuleID()
 		return err
 	})
-	pi := &model.GlobalPartitionRule{
+	pi := &model.ShardingRule{
 		ID:   uint32(id),
 		Name: model.NewCIStr(stmt.Name),
 		Type: model.PartitionTypeHash,
 		Num:  stmt.Rule.Num,
 	}
 	job := &model.Job{
-		Type:       model.ActionCreateGlobalPartitionRule,
+		Type:       model.ActionCreateShardingRule,
 		Args:       []interface{}{pi},
 		BinlogInfo: &model.HistoryInfo{},
 	}
@@ -5965,14 +5965,14 @@ func (d *ddl) CreateGlobalPartitionRule(ctx sessionctx.Context, stmt *ast.Create
 	return errors.Trace(err)
 }
 
-func (d *ddl) DropGlobalPartitionRule(ctx sessionctx.Context, stmt *ast.DropGlobalPartitionRuleStmt) error {
+func (d *ddl) DropShardingRule(ctx sessionctx.Context, stmt *ast.DropShardingRuleStmt) error {
 	is := d.infoCache.GetLatest()
-	pi, ok := is.GlobalPartitionRuleByName(model.NewCIStr(stmt.Name))
+	pi, ok := is.ShardingRuleByName(model.NewCIStr(stmt.Name))
 	if !ok {
-		return meta.ErrGlobalPartitionRuleNotExists.GenWithStackByArgs()
+		return meta.ErrShardingRuleNotExists.GenWithStackByArgs()
 	}
 	job := &model.Job{
-		Type:       model.ActionDropGlobalPartitionRule,
+		Type:       model.ActionDropShardingRule,
 		Args:       []interface{}{pi},
 		BinlogInfo: &model.HistoryInfo{},
 	}

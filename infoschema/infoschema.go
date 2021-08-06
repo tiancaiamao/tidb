@@ -56,9 +56,9 @@ type InfoSchema interface {
 	// RuleBundles will return a copy of all rule bundles.
 	RuleBundles() []*placement.Bundle
 
-	GlobalPartitionRuleByName(name model.CIStr) (*model.GlobalPartitionRule, bool)
-	GlobalPartitionRuleByID(id uint32) (*model.GlobalPartitionRule, bool)
-	AllGlobalPartitionRules() []*model.GlobalPartitionRule
+	ShardingRuleByName(name model.CIStr) (*model.ShardingRule, bool)
+	ShardingRuleByID(id uint32) (*model.ShardingRule, bool)
+	AllShardingRules() []*model.ShardingRule
 }
 
 type sortedTables []table.Table
@@ -99,7 +99,7 @@ type infoSchema struct {
 
 	schemaMap map[string]*schemaTables
 
-	globalPartitionRuleMap map[uint32]*model.GlobalPartitionRule
+	globalPartitionRuleMap map[uint32]*model.ShardingRule
 
 	// sortedTablesBuckets is a slice of sortedTables, a table's bucket index is (tableID % bucketCount).
 	sortedTablesBuckets []sortedTables
@@ -112,7 +112,7 @@ type infoSchema struct {
 func MockInfoSchema(tbList []*model.TableInfo) InfoSchema {
 	result := &infoSchema{}
 	result.schemaMap = make(map[string]*schemaTables)
-	result.globalPartitionRuleMap = map[uint32]*model.GlobalPartitionRule{}
+	result.globalPartitionRuleMap = map[uint32]*model.ShardingRule{}
 	result.ruleBundleMap = make(map[string]*placement.Bundle)
 	result.sortedTablesBuckets = make([]sortedTables, bucketCount)
 	dbInfo := &model.DBInfo{ID: 0, Name: model.NewCIStr("test"), Tables: tbList}
@@ -137,7 +137,7 @@ func MockInfoSchema(tbList []*model.TableInfo) InfoSchema {
 func MockInfoSchemaWithSchemaVer(tbList []*model.TableInfo, schemaVer int64) InfoSchema {
 	result := &infoSchema{}
 	result.schemaMap = make(map[string]*schemaTables)
-	result.globalPartitionRuleMap = map[uint32]*model.GlobalPartitionRule{}
+	result.globalPartitionRuleMap = map[uint32]*model.ShardingRule{}
 	result.ruleBundleMap = make(map[string]*placement.Bundle)
 	result.sortedTablesBuckets = make([]sortedTables, bucketCount)
 	dbInfo := &model.DBInfo{ID: 0, Name: model.NewCIStr("test"), Tables: tbList}
@@ -318,7 +318,7 @@ func (is *infoSchema) SequenceByName(schema, sequence model.CIStr) (util.Sequenc
 	return tbl.(util.SequenceTable), nil
 }
 
-func (is *infoSchema) GlobalPartitionRuleByName(name model.CIStr) (*model.GlobalPartitionRule, bool) {
+func (is *infoSchema) ShardingRuleByName(name model.CIStr) (*model.ShardingRule, bool) {
 	for _, gpRule := range is.globalPartitionRuleMap {
 		if gpRule.Name.L == name.L {
 			return gpRule, true
@@ -327,7 +327,7 @@ func (is *infoSchema) GlobalPartitionRuleByName(name model.CIStr) (*model.Global
 	return nil, false
 }
 
-func (is *infoSchema) GlobalPartitionRuleByID(id uint32) (*model.GlobalPartitionRule, bool) {
+func (is *infoSchema) ShardingRuleByID(id uint32) (*model.ShardingRule, bool) {
 	for _, pi := range is.globalPartitionRuleMap {
 		if pi.ID == id {
 			return pi, true
@@ -336,8 +336,8 @@ func (is *infoSchema) GlobalPartitionRuleByID(id uint32) (*model.GlobalPartition
 	return nil, false
 }
 
-func (is *infoSchema) AllGlobalPartitionRules() []*model.GlobalPartitionRule {
-	var rules []*model.GlobalPartitionRule
+func (is *infoSchema) AllShardingRules() []*model.ShardingRule {
+	var rules []*model.ShardingRule
 	for _, pi := range is.globalPartitionRuleMap {
 		rules = append(rules, pi)
 	}

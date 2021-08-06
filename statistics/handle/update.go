@@ -946,7 +946,7 @@ func (h *Handle) HandleAutoAnalyze(is infoschema.InfoSchema) (analyzed bool) {
 		tbls := is.SchemaTables(model.NewCIStr(db))
 		for _, tbl := range tbls {
 			tblInfo := tbl.Meta()
-			if tblInfo.IsGlobalPartitionTable() {
+			if tblInfo.IsShardingTable() {
 				continue
 			}
 			pi := tblInfo.GetPartitionInfo()
