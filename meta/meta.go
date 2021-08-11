@@ -525,13 +525,13 @@ func (m *Meta) DropDatabase(dbID int64) error {
 
 // DropShardingRule drops global partition rule.
 func (m *Meta) DropShardingRule(ruleID uint32) error {
-	rule, err := m.GetShardingRule(ruleID)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if len(rule.TableIDs) > 0 {
-		return errors.New("should drop tables that depends on the rule first.")
-	}
+	// rule, err := m.GetShardingRule(ruleID)
+	// if err != nil {
+	// 	return errors.Trace(err)
+	// }
+	// if len(rule.TableIDs) > 0 {
+	// 	return errors.New("should drop tables that depends on the rule first.")
+	// }
 	return m.txn.HDel(mGPRs, m.gprKey(ruleID))
 }
 

@@ -1890,11 +1890,14 @@ func (d *ddl) CreateTableWithInfo(
 	if err := d.assignTableID(tbInfo); err != nil {
 		return errors.Trace(err)
 	}
+
+	fmt.Println("+++++++++++++++++ partition is ????????", tbInfo.Partition)
 	if tbInfo.Partition != nil {
 		if err := d.assignPartitionIDs(tbInfo.Partition, is); err != nil {
 			return errors.Trace(err)
 		}
 	}
+	PARTITIONINFO := tbInfo.Partition
 
 	if err := checkTableInfoValidExtra(tbInfo); err != nil {
 		return err
@@ -1929,7 +1932,8 @@ func (d *ddl) CreateTableWithInfo(
 			err = nil
 		}
 	} else if actionType == model.ActionCreateTable {
-		d.preSplitAndScatter(ctx, tbInfo, tbInfo.GetPartitionInfo())
+		fmt.Println("--------------------- partition is ???", tbInfo.GetPartitionInfo())
+		d.preSplitAndScatter(ctx, tbInfo, PARTITIONINFO)
 		if tbInfo.AutoIncID > 1 {
 			// Default tableAutoIncID base is 0.
 			// If the first ID is expected to greater than 1, we need to do rebase.
@@ -1970,6 +1974,10 @@ func (d *ddl) preSplitAndScatter(ctx sessionctx.Context, tbInfo *model.TableInfo
 	} else {
 		scatterRegion = variable.TiDBOptOn(val)
 	}
+
+
+	fmt.Println("fffffffffffffffffffffffffff presplit and scatter pi === ", pi)
+
 	if pi != nil {
 		preSplit = func() { splitPartitionTableRegion(ctx, sp, tbInfo, pi, scatterRegion) }
 	} else {

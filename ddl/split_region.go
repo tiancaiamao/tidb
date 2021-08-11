@@ -14,6 +14,7 @@
 package ddl
 
 import (
+	"fmt"
 	"context"
 
 	"github.com/pingcap/errors"
@@ -31,7 +32,23 @@ func splitPartitionTableRegion(ctx sessionctx.Context, store kv.SplittableStore,
 	regionIDs := make([]uint64, 0, len(pi.Definitions))
 	ctxWithTimeout, cancel := context.WithTimeout(context.Background(), ctx.GetSessionVars().GetSplitRegionTimeout())
 	defer cancel()
-	if shardingBits(tbInfo) > 0 && tbInfo.PreSplitRegions > 0 {
+
+	if pi.GlobalID > 0 {
+		splitKeys := make([][]byte, 0, pi.Num)
+		for i := 0; uint64(i) < pi.Num; i++ {
+			key := tablecodec.PrependShardingPrefix(nil, pi.GlobalID, uint32(i))
+			splitKeys = append(splitKeys, key)
+		}
+		
+		var tableID int64
+		var err error
+		fmt.Println("!!!!!!   Split Sharding Table !!!!", tbInfo.ID)
+		regionIDs, err = store.SplitRegions(ctxWithTimeout, splitKeys, scatter, &tableID)
+		if err != nil {
+			// It will be automatically split by TiKV later.
+			logutil.BgLogger().Warn("[ddl] split table region failed", zap.Error(err))
+		}
+	} else if shardingBits(tbInfo) > 0 && tbInfo.PreSplitRegions > 0 {
 		for _, def := range pi.Definitions {
 			regionIDs = append(regionIDs, preSplitPhysicalTableByShardRowID(ctxWithTimeout, store, tbInfo, def.ID, scatter)...)
 		}
