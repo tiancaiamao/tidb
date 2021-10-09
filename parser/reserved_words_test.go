@@ -11,8 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build reserved_words_test
-// +build reserved_words_test
+//+build reserved_words_test
 
 // This file ensures that the set of reserved keywords is the same as that of
 // MySQL. To run:
