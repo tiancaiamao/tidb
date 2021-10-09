@@ -15,151 +15,152 @@
 package types
 
 import (
-	"testing"
-
+	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/charset"
 	"github.com/pingcap/parser/mysql"
-	"github.com/stretchr/testify/require"
+	"github.com/pingcap/tidb/util/testleak"
 )
 
-func TestFieldType(t *testing.T) {
-	t.Parallel()
+var _ = Suite(&testFieldTypeSuite{})
 
+type testFieldTypeSuite struct {
+}
+
+func (s *testFieldTypeSuite) TestFieldType(c *C) {
+	defer testleak.AfterTest(c)()
 	ft := NewFieldType(mysql.TypeDuration)
-	require.Equal(t, UnspecifiedLength, ft.Flen)
-	require.Equal(t, UnspecifiedLength, ft.Decimal)
-
+	c.Assert(ft.Flen, Equals, UnspecifiedLength)
+	c.Assert(ft.Decimal, Equals, UnspecifiedLength)
 	ft.Decimal = 5
-	require.Equal(t, "time(5)", ft.String())
+	c.Assert(ft.String(), Equals, "time(5)")
 
 	ft = NewFieldType(mysql.TypeLong)
 	ft.Flen = 5
 	ft.Flag = mysql.UnsignedFlag | mysql.ZerofillFlag
-	require.Equal(t, "int(5) UNSIGNED ZEROFILL", ft.String())
-	require.Equal(t, "int(5) unsigned", ft.InfoSchemaStr())
+	c.Assert(ft.String(), Equals, "int(5) UNSIGNED ZEROFILL")
+	c.Assert(ft.InfoSchemaStr(), Equals, "int(5) unsigned")
 
 	ft = NewFieldType(mysql.TypeFloat)
 	ft.Flen = 12   // Default
 	ft.Decimal = 3 // Not Default
-	require.Equal(t, "float(12,3)", ft.String())
+	c.Assert(ft.String(), Equals, "float(12,3)")
 	ft = NewFieldType(mysql.TypeFloat)
 	ft.Flen = 12    // Default
 	ft.Decimal = -1 // Default
-	require.Equal(t, "float", ft.String())
+	c.Assert(ft.String(), Equals, "float")
 	ft = NewFieldType(mysql.TypeFloat)
 	ft.Flen = 5     // Not Default
 	ft.Decimal = -1 // Default
-	require.Equal(t, "float", ft.String())
+	c.Assert(ft.String(), Equals, "float")
 	ft = NewFieldType(mysql.TypeFloat)
 	ft.Flen = 7    // Not Default
 	ft.Decimal = 3 // Not Default
-	require.Equal(t, "float(7,3)", ft.String())
+	c.Assert(ft.String(), Equals, "float(7,3)")
 
 	ft = NewFieldType(mysql.TypeDouble)
 	ft.Flen = 22   // Default
 	ft.Decimal = 3 // Not Default
-	require.Equal(t, "double(22,3)", ft.String())
+	c.Assert(ft.String(), Equals, "double(22,3)")
 	ft = NewFieldType(mysql.TypeDouble)
 	ft.Flen = 22    // Default
 	ft.Decimal = -1 // Default
-	require.Equal(t, "double", ft.String())
+	c.Assert(ft.String(), Equals, "double")
 	ft = NewFieldType(mysql.TypeDouble)
 	ft.Flen = 5     // Not Default
 	ft.Decimal = -1 // Default
-	require.Equal(t, "double", ft.String())
+	c.Assert(ft.String(), Equals, "double")
 	ft = NewFieldType(mysql.TypeDouble)
 	ft.Flen = 7    // Not Default
 	ft.Decimal = 3 // Not Default
-	require.Equal(t, "double(7,3)", ft.String())
+	c.Assert(ft.String(), Equals, "double(7,3)")
 
 	ft = NewFieldType(mysql.TypeBlob)
 	ft.Flen = 10
 	ft.Charset = "UTF8"
 	ft.Collate = "UTF8_UNICODE_GI"
-	require.Equal(t, "text CHARACTER SET UTF8 COLLATE UTF8_UNICODE_GI", ft.String())
+	c.Assert(ft.String(), Equals, "text CHARACTER SET UTF8 COLLATE UTF8_UNICODE_GI")
 
 	ft = NewFieldType(mysql.TypeVarchar)
 	ft.Flen = 10
 	ft.Flag |= mysql.BinaryFlag
-	require.Equal(t, "varchar(10) BINARY CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", ft.String())
+	c.Assert(ft.String(), Equals, "varchar(10) BINARY CHARACTER SET utf8mb4 COLLATE utf8mb4_bin")
 
 	ft = NewFieldType(mysql.TypeString)
 	ft.Charset = charset.CollationBin
 	ft.Flag |= mysql.BinaryFlag
-	require.Equal(t, "binary(1) COLLATE utf8mb4_bin", ft.String())
+	c.Assert(ft.String(), Equals, "binary(1) COLLATE utf8mb4_bin")
 
 	ft = NewFieldType(mysql.TypeEnum)
 	ft.Elems = []string{"a", "b"}
-	require.Equal(t, "enum('a','b')", ft.String())
+	c.Assert(ft.String(), Equals, "enum('a','b')")
 
 	ft = NewFieldType(mysql.TypeEnum)
 	ft.Elems = []string{"'a'", "'b'"}
-	require.Equal(t, "enum('''a''','''b''')", ft.String())
+	c.Assert(ft.String(), Equals, "enum('''a''','''b''')")
 
 	ft = NewFieldType(mysql.TypeEnum)
 	ft.Elems = []string{"a\nb", "a\tb", "a\rb"}
-	require.Equal(t, "enum('a\\nb','a\tb','a\\rb')", ft.String())
+	c.Assert(ft.String(), Equals, "enum('a\\nb','a\tb','a\\rb')")
 
 	ft = NewFieldType(mysql.TypeEnum)
 	ft.Elems = []string{"a\nb", "a'\t\r\nb", "a\rb"}
-	require.Equal(t, "enum('a\\nb','a''	\\r\\nb','a\\rb')", ft.String())
+	c.Assert(ft.String(), Equals, "enum('a\\nb','a''	\\r\\nb','a\\rb')")
 
 	ft = NewFieldType(mysql.TypeSet)
 	ft.Elems = []string{"a", "b"}
-	require.Equal(t, "set('a','b')", ft.String())
+	c.Assert(ft.String(), Equals, "set('a','b')")
 
 	ft = NewFieldType(mysql.TypeSet)
 	ft.Elems = []string{"'a'", "'b'"}
-	require.Equal(t, "set('''a''','''b''')", ft.String())
+	c.Assert(ft.String(), Equals, "set('''a''','''b''')")
 
 	ft = NewFieldType(mysql.TypeSet)
 	ft.Elems = []string{"a\nb", "a'\t\r\nb", "a\rb"}
-	require.Equal(t, "set('a\\nb','a''	\\r\\nb','a\\rb')", ft.String())
+	c.Assert(ft.String(), Equals, "set('a\\nb','a''	\\r\\nb','a\\rb')")
 
 	ft = NewFieldType(mysql.TypeSet)
 	ft.Elems = []string{"a'\nb", "a'b\tc"}
-	require.Equal(t, "set('a''\\nb','a''b	c')", ft.String())
+	c.Assert(ft.String(), Equals, "set('a''\\nb','a''b	c')")
 
 	ft = NewFieldType(mysql.TypeTimestamp)
 	ft.Flen = 8
 	ft.Decimal = 2
-	require.Equal(t, "timestamp(2)", ft.String())
+	c.Assert(ft.String(), Equals, "timestamp(2)")
 	ft = NewFieldType(mysql.TypeTimestamp)
 	ft.Flen = 8
 	ft.Decimal = 0
-	require.Equal(t, "timestamp", ft.String())
+	c.Assert(ft.String(), Equals, "timestamp")
 
 	ft = NewFieldType(mysql.TypeDatetime)
 	ft.Flen = 8
 	ft.Decimal = 2
-	require.Equal(t, "datetime(2)", ft.String())
+	c.Assert(ft.String(), Equals, "datetime(2)")
 	ft = NewFieldType(mysql.TypeDatetime)
 	ft.Flen = 8
 	ft.Decimal = 0
-	require.Equal(t, "datetime", ft.String())
+	c.Assert(ft.String(), Equals, "datetime")
 
 	ft = NewFieldType(mysql.TypeDate)
 	ft.Flen = 8
 	ft.Decimal = 2
-	require.Equal(t, "date", ft.String())
+	c.Assert(ft.String(), Equals, "date")
 	ft = NewFieldType(mysql.TypeDate)
 	ft.Flen = 8
 	ft.Decimal = 0
-	require.Equal(t, "date", ft.String())
+	c.Assert(ft.String(), Equals, "date")
 
 	ft = NewFieldType(mysql.TypeYear)
 	ft.Flen = 4
 	ft.Decimal = 0
-	require.Equal(t, "year(4)", ft.String())
+	c.Assert(ft.String(), Equals, "year(4)")
 	ft = NewFieldType(mysql.TypeYear)
 	ft.Flen = 2
 	ft.Decimal = 2
-	require.Equal(t, "year(2)", ft.String()) // Note: Invalid year.
+	c.Assert(ft.String(), Equals, "year(2)") // Note: Invalid year.
 }
 
-func TestDefaultTypeForValue(t *testing.T) {
-	t.Parallel()
-
+func (s *testFieldTypeSuite) TestDefaultTypeForValue(c *C) {
+	defer testleak.AfterTest(c)()
 	tests := []struct {
 		value     interface{}
 		tp        byte
@@ -196,22 +197,20 @@ func TestDefaultTypeForValue(t *testing.T) {
 		{Enum{Name: "a", Value: 1}, mysql.TypeEnum, 1, UnspecifiedLength, charset.CharsetBin, charset.CharsetBin, mysql.BinaryFlag | mysql.NotNullFlag},
 		{Set{Name: "a", Value: 1}, mysql.TypeSet, 1, UnspecifiedLength, charset.CharsetBin, charset.CharsetBin, mysql.BinaryFlag | mysql.NotNullFlag},
 	}
-
 	for i, tt := range tests {
 		var ft FieldType
 		DefaultTypeForValue(tt.value, &ft, mysql.DefaultCharset, mysql.DefaultCollationName)
-		require.Equalf(t, tt.tp, ft.Tp, "%v %v %v", i, ft.Tp, tt.tp)
-		require.Equalf(t, tt.flen, ft.Flen, "%v %v %v", i, ft.Flen, tt.flen)
-		require.Equalf(t, tt.charset, ft.Charset, "%v %v %v", i, ft.Charset, tt.charset)
-		require.Equalf(t, tt.decimal, ft.Decimal, "%v %v %v", i, ft.Decimal, tt.decimal)
-		require.Equalf(t, tt.collation, ft.Collate, "%v %v %v", i, ft.Collate, tt.collation)
-		require.Equalf(t, tt.flag, ft.Flag, "%v %v %v", i, ft.Flag, tt.flag)
+		c.Assert(ft.Tp, Equals, tt.tp, Commentf("%v %v %v", i, ft.Tp, tt.tp))
+		c.Assert(ft.Flen, Equals, tt.flen, Commentf("%v %v %v", i, ft.Flen, tt.flen))
+		c.Assert(ft.Charset, Equals, tt.charset, Commentf("%v %v %v", i, ft.Charset, tt.charset))
+		c.Assert(ft.Decimal, Equals, tt.decimal, Commentf("%v %v %v", i, ft.Decimal, tt.decimal))
+		c.Assert(ft.Collate, Equals, tt.collation, Commentf("%v %v %v", i, ft.Collate, tt.collation))
+		c.Assert(ft.Flag, Equals, tt.flag, Commentf("%v %v %v", i, ft.Flag, tt.flag))
 	}
 }
 
-func TestAggFieldType(t *testing.T) {
-	t.Parallel()
-
+func (s *testFieldTypeSuite) TestAggFieldType(c *C) {
+	defer testleak.AfterTest(c)()
 	fts := []*FieldType{
 		NewFieldType(mysql.TypeUnspecified),
 		NewFieldType(mysql.TypeTiny),
@@ -245,98 +244,93 @@ func TestAggFieldType(t *testing.T) {
 
 	for i := range fts {
 		aggTp := AggFieldType(fts[i : i+1])
-		require.Equal(t, fts[i].Tp, aggTp.Tp)
+		c.Assert(aggTp.Tp, Equals, fts[i].Tp)
 
 		aggTp = AggFieldType([]*FieldType{fts[i], fts[i]})
 		switch fts[i].Tp {
 		case mysql.TypeDate:
-			require.Equal(t, mysql.TypeDate, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeDate)
 		case mysql.TypeJSON:
-			require.Equal(t, mysql.TypeJSON, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeJSON)
 		case mysql.TypeEnum, mysql.TypeSet, mysql.TypeVarString:
-			require.Equal(t, mysql.TypeVarchar, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeVarchar)
 		case mysql.TypeUnspecified:
-			require.Equal(t, mysql.TypeNewDecimal, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeNewDecimal)
 		default:
-			require.Equal(t, fts[i].Tp, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, fts[i].Tp)
 		}
 
 		aggTp = AggFieldType([]*FieldType{fts[i], NewFieldType(mysql.TypeLong)})
 		switch fts[i].Tp {
 		case mysql.TypeTiny, mysql.TypeShort, mysql.TypeLong,
 			mysql.TypeYear, mysql.TypeInt24, mysql.TypeNull:
-			require.Equal(t, mysql.TypeLong, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeLong)
 		case mysql.TypeLonglong:
-			require.Equal(t, mysql.TypeLonglong, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeLonglong)
 		case mysql.TypeFloat, mysql.TypeDouble:
-			require.Equal(t, mysql.TypeDouble, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeDouble)
 		case mysql.TypeTimestamp, mysql.TypeDate, mysql.TypeDuration,
 			mysql.TypeDatetime, mysql.TypeNewDate, mysql.TypeVarchar,
 			mysql.TypeJSON, mysql.TypeEnum, mysql.TypeSet,
 			mysql.TypeVarString, mysql.TypeGeometry:
-			require.Equal(t, mysql.TypeVarchar, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeVarchar)
 		case mysql.TypeBit:
-			require.Equal(t, mysql.TypeLonglong, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeLonglong)
 		case mysql.TypeString:
-			require.Equal(t, mysql.TypeString, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeString)
 		case mysql.TypeUnspecified, mysql.TypeNewDecimal:
-			require.Equal(t, mysql.TypeNewDecimal, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeNewDecimal)
 		case mysql.TypeTinyBlob:
-			require.Equal(t, mysql.TypeTinyBlob, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeTinyBlob)
 		case mysql.TypeBlob:
-			require.Equal(t, mysql.TypeBlob, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeBlob)
 		case mysql.TypeMediumBlob:
-			require.Equal(t, mysql.TypeMediumBlob, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeMediumBlob)
 		case mysql.TypeLongBlob:
-			require.Equal(t, mysql.TypeLongBlob, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeLongBlob)
 		}
 
 		aggTp = AggFieldType([]*FieldType{fts[i], NewFieldType(mysql.TypeJSON)})
 		switch fts[i].Tp {
 		case mysql.TypeJSON, mysql.TypeNull:
-			require.Equal(t, mysql.TypeJSON, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeJSON)
 		case mysql.TypeLongBlob, mysql.TypeMediumBlob, mysql.TypeTinyBlob, mysql.TypeBlob:
-			require.Equal(t, mysql.TypeLongBlob, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeLongBlob)
 		case mysql.TypeString:
-			require.Equal(t, mysql.TypeString, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeString)
 		default:
-			require.Equal(t, mysql.TypeVarchar, aggTp.Tp)
+			c.Assert(aggTp.Tp, Equals, mysql.TypeVarchar)
 		}
 	}
 }
-
-func TestAggFieldTypeForTypeFlag(t *testing.T) {
-	t.Parallel()
-
+func (s *testFieldTypeSuite) TestAggFieldTypeForTypeFlag(c *C) {
 	types := []*FieldType{
 		NewFieldType(mysql.TypeLonglong),
 		NewFieldType(mysql.TypeLonglong),
 	}
 
 	aggTp := AggFieldType(types)
-	require.Equal(t, mysql.TypeLonglong, aggTp.Tp)
-	require.Equal(t, uint(0), aggTp.Flag)
+	c.Assert(aggTp.Tp, Equals, mysql.TypeLonglong)
+	c.Assert(aggTp.Flag, Equals, uint(0))
 
 	types[0].Flag = mysql.NotNullFlag
 	aggTp = AggFieldType(types)
-	require.Equal(t, mysql.TypeLonglong, aggTp.Tp)
-	require.Equal(t, uint(0), aggTp.Flag)
+	c.Assert(aggTp.Tp, Equals, mysql.TypeLonglong)
+	c.Assert(aggTp.Flag, Equals, uint(0))
 
 	types[0].Flag = 0
 	types[1].Flag = mysql.NotNullFlag
 	aggTp = AggFieldType(types)
-	require.Equal(t, mysql.TypeLonglong, aggTp.Tp)
-	require.Equal(t, uint(0), aggTp.Flag)
+	c.Assert(aggTp.Tp, Equals, mysql.TypeLonglong)
+	c.Assert(aggTp.Flag, Equals, uint(0))
 
 	types[0].Flag = mysql.NotNullFlag
 	aggTp = AggFieldType(types)
-	require.Equal(t, mysql.TypeLonglong, aggTp.Tp)
-	require.Equal(t, mysql.NotNullFlag, aggTp.Flag)
+	c.Assert(aggTp.Tp, Equals, mysql.TypeLonglong)
+	c.Assert(aggTp.Flag, Equals, mysql.NotNullFlag)
 }
 
-func TestAggFieldTypeForIntegralPromotion(t *testing.T) {
-	t.Parallel()
-
+func (s testFieldTypeSuite) TestAggFieldTypeForIntegralPromotion(c *C) {
 	fts := []*FieldType{
 		NewFieldType(mysql.TypeTiny),
 		NewFieldType(mysql.TypeShort),
@@ -352,31 +346,30 @@ func TestAggFieldTypeForIntegralPromotion(t *testing.T) {
 		tps[0].Flag = 0
 		tps[1].Flag = 0
 		aggTp := AggFieldType(tps)
-		require.Equal(t, fts[i].Tp, aggTp.Tp)
-		require.Equal(t, uint(0), aggTp.Flag)
+		c.Assert(aggTp.Tp, Equals, fts[i].Tp)
+		c.Assert(aggTp.Flag, Equals, uint(0))
 
 		tps[0].Flag = mysql.UnsignedFlag
 		aggTp = AggFieldType(tps)
-		require.Equal(t, fts[i].Tp, aggTp.Tp)
-		require.Equal(t, uint(0), aggTp.Flag)
+		c.Assert(aggTp.Tp, Equals, fts[i].Tp)
+		c.Assert(aggTp.Flag, Equals, uint(0))
 
 		tps[0].Flag = mysql.UnsignedFlag
 		tps[1].Flag = mysql.UnsignedFlag
 		aggTp = AggFieldType(tps)
-		require.Equal(t, fts[i].Tp, aggTp.Tp)
-		require.Equal(t, mysql.UnsignedFlag, aggTp.Flag)
+		c.Assert(aggTp.Tp, Equals, fts[i].Tp)
+		c.Assert(aggTp.Flag, Equals, mysql.UnsignedFlag)
 
 		tps[0].Flag = 0
 		tps[1].Flag = mysql.UnsignedFlag
 		aggTp = AggFieldType(tps)
-		require.Equal(t, fts[i+1].Tp, aggTp.Tp)
-		require.Equal(t, uint(0), aggTp.Flag)
+		c.Assert(aggTp.Tp, Equals, fts[i+1].Tp)
+		c.Assert(aggTp.Flag, Equals, uint(0))
 	}
 }
 
-func TestAggregateEvalType(t *testing.T) {
-	t.Parallel()
-
+func (s *testFieldTypeSuite) TestAggregateEvalType(c *C) {
+	defer testleak.AfterTest(c)()
 	fts := []*FieldType{
 		NewFieldType(mysql.TypeUnspecified),
 		NewFieldType(mysql.TypeTiny),
@@ -417,18 +410,18 @@ func TestAggregateEvalType(t *testing.T) {
 			mysql.TypeJSON, mysql.TypeEnum, mysql.TypeSet, mysql.TypeTinyBlob,
 			mysql.TypeMediumBlob, mysql.TypeLongBlob, mysql.TypeBlob,
 			mysql.TypeVarString, mysql.TypeString, mysql.TypeGeometry:
-			require.True(t, aggregatedEvalType.IsStringKind())
-			require.Equal(t, uint(0), flag)
+			c.Assert(aggregatedEvalType.IsStringKind(), IsTrue)
+			c.Assert(flag, Equals, uint(0))
 		case mysql.TypeTiny, mysql.TypeShort, mysql.TypeLong, mysql.TypeLonglong, mysql.TypeBit,
 			mysql.TypeInt24, mysql.TypeYear:
-			require.Equal(t, ETInt, aggregatedEvalType)
-			require.Equal(t, mysql.BinaryFlag, flag)
+			c.Assert(aggregatedEvalType, Equals, ETInt)
+			c.Assert(flag, Equals, mysql.BinaryFlag)
 		case mysql.TypeFloat, mysql.TypeDouble:
-			require.Equal(t, ETReal, aggregatedEvalType)
-			require.Equal(t, mysql.BinaryFlag, flag)
+			c.Assert(aggregatedEvalType, Equals, ETReal)
+			c.Assert(flag, Equals, mysql.BinaryFlag)
 		case mysql.TypeNewDecimal:
-			require.Equal(t, ETDecimal, aggregatedEvalType)
-			require.Equal(t, mysql.BinaryFlag, flag)
+			c.Assert(aggregatedEvalType, Equals, ETDecimal)
+			c.Assert(flag, Equals, mysql.BinaryFlag)
 		}
 
 		flag = 0
@@ -439,18 +432,18 @@ func TestAggregateEvalType(t *testing.T) {
 			mysql.TypeJSON, mysql.TypeEnum, mysql.TypeSet, mysql.TypeTinyBlob,
 			mysql.TypeMediumBlob, mysql.TypeLongBlob, mysql.TypeBlob,
 			mysql.TypeVarString, mysql.TypeString, mysql.TypeGeometry:
-			require.True(t, aggregatedEvalType.IsStringKind())
-			require.Equal(t, uint(0), flag)
+			c.Assert(aggregatedEvalType.IsStringKind(), IsTrue)
+			c.Assert(flag, Equals, uint(0))
 		case mysql.TypeTiny, mysql.TypeShort, mysql.TypeLong, mysql.TypeLonglong, mysql.TypeBit,
 			mysql.TypeInt24, mysql.TypeYear:
-			require.Equal(t, ETInt, aggregatedEvalType)
-			require.Equal(t, mysql.BinaryFlag, flag)
+			c.Assert(aggregatedEvalType, Equals, ETInt)
+			c.Assert(flag, Equals, mysql.BinaryFlag)
 		case mysql.TypeFloat, mysql.TypeDouble:
-			require.Equal(t, ETReal, aggregatedEvalType)
-			require.Equal(t, mysql.BinaryFlag, flag)
+			c.Assert(aggregatedEvalType, Equals, ETReal)
+			c.Assert(flag, Equals, mysql.BinaryFlag)
 		case mysql.TypeNewDecimal:
-			require.Equal(t, ETDecimal, aggregatedEvalType)
-			require.Equal(t, mysql.BinaryFlag, flag)
+			c.Assert(aggregatedEvalType, Equals, ETDecimal)
+			c.Assert(flag, Equals, mysql.BinaryFlag)
 		}
 		flag = 0
 		aggregatedEvalType = AggregateEvalType([]*FieldType{fts[i], NewFieldType(mysql.TypeLong)}, &flag)
@@ -460,18 +453,18 @@ func TestAggregateEvalType(t *testing.T) {
 			mysql.TypeEnum, mysql.TypeSet, mysql.TypeTinyBlob, mysql.TypeMediumBlob,
 			mysql.TypeLongBlob, mysql.TypeBlob, mysql.TypeVarString,
 			mysql.TypeString, mysql.TypeGeometry:
-			require.True(t, aggregatedEvalType.IsStringKind())
-			require.Equal(t, uint(0), flag)
+			c.Assert(aggregatedEvalType.IsStringKind(), IsTrue)
+			c.Assert(flag, Equals, uint(0))
 		case mysql.TypeUnspecified, mysql.TypeTiny, mysql.TypeShort, mysql.TypeLong, mysql.TypeNull, mysql.TypeBit,
 			mysql.TypeLonglong, mysql.TypeYear, mysql.TypeInt24:
-			require.Equal(t, ETInt, aggregatedEvalType)
-			require.Equal(t, mysql.BinaryFlag, flag)
+			c.Assert(aggregatedEvalType, Equals, ETInt)
+			c.Assert(flag, Equals, mysql.BinaryFlag)
 		case mysql.TypeFloat, mysql.TypeDouble:
-			require.Equal(t, ETReal, aggregatedEvalType)
-			require.Equal(t, mysql.BinaryFlag, flag)
+			c.Assert(aggregatedEvalType, Equals, ETReal)
+			c.Assert(flag, Equals, mysql.BinaryFlag)
 		case mysql.TypeNewDecimal:
-			require.Equal(t, ETDecimal, aggregatedEvalType)
-			require.Equal(t, mysql.BinaryFlag, flag)
+			c.Assert(aggregatedEvalType, Equals, ETDecimal)
+			c.Assert(flag, Equals, mysql.BinaryFlag)
 		}
 	}
 }

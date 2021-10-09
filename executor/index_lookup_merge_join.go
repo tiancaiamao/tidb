@@ -689,7 +689,7 @@ func (imw *innerMergeWorker) constructDatumLookupKey(task *lookUpMergeJoinTask, 
 		innerValue, err := outerValue.ConvertTo(sc, innerColType)
 		if err != nil {
 			// If the converted outerValue overflows, we don't need to lookup it.
-			if terror.ErrorEqual(err, types.ErrOverflow) || terror.ErrorEqual(err, types.ErrWarnDataOutOfRange) {
+			if terror.ErrorEqual(err, types.ErrOverflow) {
 				return nil, nil
 			}
 			if terror.ErrorEqual(err, types.ErrTruncated) && (innerColType.Tp == mysql.TypeSet || innerColType.Tp == mysql.TypeEnum) {

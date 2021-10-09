@@ -247,6 +247,7 @@ import (
 	statsExtended     "STATS_EXTENDED"
 	straightJoin      "STRAIGHT_JOIN"
 	tableKwd          "TABLE"
+	cached            "CACHED"
 	tableSample       "TABLESAMPLE"
 	stored            "STORED"
 	terminated        "TERMINATED"
@@ -1067,6 +1068,7 @@ import (
 	OptErrors                              "ERRORS or empty"
 	OptFull                                "Full or empty"
 	OptTemporary                           "TEMPORARY or empty"
+	CachedOpt                              "Table Cached Status"
 	OptOrder                               "Optional ordering keyword: ASC/DESC. Default to ASC"
 	Order                                  "Ordering keyword: ASC or DESC"
 	OptionLevel                            "3 levels used by lightning config"
@@ -1303,7 +1305,6 @@ import (
 	PlacementRole                          "Placement rules role option"
 	OldPlacementOptions                    "Placement rules options"
 	PlacementOption                        "Anonymous or direct placement option"
-	PlacementPolicyOption                  "Anonymous or placement policy option"
 	DirectPlacementOption                  "Subset of anonymous or direct placement option"
 	PlacementOptionList                    "Anomymous or direct placement option list"
 	PlacementSpec                          "Placement rules specification"
@@ -1469,11 +1470,14 @@ Start:
  * See https://dev.mysql.com/doc/refman/5.7/en/alter-table.html
  *******************************************************************************************/
 AlterTableStmt:
-	"ALTER" IgnoreOptional "TABLE" TableName AlterTableSpecListOpt AlterTablePartitionOpt
+	"ALTER" IgnoreOptional "TABLE" TableName AlterTableSpecListOpt AlterTablePartitionOpt "CACHED" CachedOpt
 	{
 		specs := $5.([]*ast.AlterTableSpec)
 		if $6 != nil {
 			specs = append(specs, $6.(*ast.AlterTableSpec))
+		}
+		if $8 != nil {
+			specs = append(specs, $8.(*ast.AlterTableSpec))
 		}
 		$$ = &ast.AlterTableStmt{
 			Table: $4.(*ast.TableName),
@@ -1593,16 +1597,6 @@ DirectPlacementOption:
 PlacementOption:
 	DirectPlacementOption
 |	"PLACEMENT" "POLICY" EqOpt stringLit
-	{
-		$$ = &ast.PlacementOption{Tp: ast.PlacementOptionPolicy, StrValue: $4}
-	}
-|	"PLACEMENT" "POLICY" EqOpt PolicyName
-	{
-		$$ = &ast.PlacementOption{Tp: ast.PlacementOptionPolicy, StrValue: $4}
-	}
-
-PlacementPolicyOption:
-	"PLACEMENT" "POLICY" EqOpt stringLit
 	{
 		$$ = &ast.PlacementOption{Tp: ast.PlacementOptionPolicy, StrValue: $4}
 	}
@@ -2280,6 +2274,28 @@ AlterTableSpec:
 		$$ = &ast.AlterTableSpec{
 			Tp:             ast.AlterTablePlacement,
 			PlacementSpecs: $1.([]*ast.PlacementSpec),
+		}
+	}
+
+CachedOpt:
+	/* empty */
+	{
+		$$ = &ast.AlterTableSpec{
+			CachedStatus: model.CachedTableDISABLE,
+		}
+	}
+|	"ON"
+	{
+		$$ = &ast.AlterTableSpec{
+			Tp:           ast.AlterTableEnableCached,
+			CachedStatus: model.CachedTableDISABLE,
+		}
+	}
+|	"OFF"
+	{
+		$$ = &ast.AlterTableSpec{
+			Tp:           ast.AlterTableDisableCached,
+			CachedStatus: model.CachedTableDISABLE,
 		}
 	}
 
@@ -3706,16 +3722,6 @@ DatabaseOption:
 |	DefaultKwdOpt "ENCRYPTION" EqOpt EncryptionOpt
 	{
 		$$ = &ast.DatabaseOption{Tp: ast.DatabaseOptionEncryption, Value: $4}
-	}
-|	DefaultKwdOpt PlacementPolicyOption
-	{
-		placementOptions := $2.(*ast.PlacementOption)
-		$$ = &ast.DatabaseOption{
-			// offset trick, enums are identical but of different type
-			Tp:        ast.DatabaseOptionType(placementOptions.Tp),
-			Value:     placementOptions.StrValue,
-			UintValue: placementOptions.UintValue,
-		}
 	}
 |	PlacementOption
 	{
@@ -6480,7 +6486,7 @@ Literal:
 		// See https://dev.mysql.com/doc/refman/5.7/en/charset-literal.html
 		co, err := charset.GetDefaultCollationLegacy($1)
 		if err != nil {
-			yylex.AppendError(ast.ErrUnknownCharacterSet.GenWithStack("Unsupported character introducer: '%-.64s'", $1))
+			yylex.AppendError(yylex.Errorf("Get collation error for charset: %s", $1))
 			return 1
 		}
 		expr := ast.NewValueExpr($2, parser.charset, parser.collation)
@@ -6504,7 +6510,7 @@ Literal:
 	{
 		co, err := charset.GetDefaultCollationLegacy($1)
 		if err != nil {
-			yylex.AppendError(ast.ErrUnknownCharacterSet.GenWithStack("Unsupported character introducer: '%-.64s'", $1))
+			yylex.AppendError(yylex.Errorf("Get collation error for charset: %s", $1))
 			return 1
 		}
 		expr := ast.NewValueExpr($2, parser.charset, parser.collation)
@@ -6520,7 +6526,7 @@ Literal:
 	{
 		co, err := charset.GetDefaultCollationLegacy($1)
 		if err != nil {
-			yylex.AppendError(ast.ErrUnknownCharacterSet.GenWithStack("Unsupported character introducer: '%-.64s'", $1))
+			yylex.AppendError(yylex.Errorf("Get collation error for charset: %s", $1))
 			return 1
 		}
 		expr := ast.NewValueExpr($2, parser.charset, parser.collation)
@@ -13148,7 +13154,7 @@ Starting:
 	{
 		$$ = ""
 	}
-|	"STARTING" "BY" FieldTerminator
+|	"STARTING" "BY" stringLit
 	{
 		$$ = $3
 	}
@@ -13157,7 +13163,7 @@ LinesTerminated:
 	{
 		$$ = "\n"
 	}
-|	"TERMINATED" "BY" FieldTerminator
+|	"TERMINATED" "BY" stringLit
 	{
 		$$ = $3
 	}

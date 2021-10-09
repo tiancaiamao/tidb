@@ -196,12 +196,37 @@ type IndexReaderExecutor struct {
 	selectResultHook // for testing
 }
 
+func (e *IndexReaderExecutor) ReadFromCachedTable() (bool, error) {
+	if e.table.Meta().CachedTableStatusType != model.CachedTableENABLE {
+		return false, nil
+	}
+	c := e.table.(table.CachedTable)
+	//
+	cond, err := c.ReadCondition(e.ctx, e.startTS)
+	if err != nil {
+		return false, err
+	}
+	go c.UpdateWRLock(e.ctx)
+	return cond, nil
+}
+
 // Close clears all resources hold by current object.
 func (e *IndexReaderExecutor) Close() error {
 	if e.table != nil && e.table.Meta().TempTableType != model.TempTableNone {
 		return nil
 	}
-
+	if e.table.Meta() != nil && e.table.Meta().CachedTableStatusType == model.CachedTableENABLE {
+		cond, err := e.table.(table.CachedTable).ReadCondition(e.ctx, e.startTS)
+		if err != nil {
+			return err
+		}
+		if cond {
+			e.table.(table.CachedTable).ApplyUpdateLockMeta(cond)
+			return nil
+		} else {
+			e.table.(table.CachedTable).ApplyUpdateLockMeta(cond)
+		}
+	}
 	err := e.result.Close()
 	e.result = nil
 	e.ctx.StoreQueryFeedback(e.feedback)
@@ -214,7 +239,16 @@ func (e *IndexReaderExecutor) Next(ctx context.Context, req *chunk.Chunk) error 
 		req.Reset()
 		return nil
 	}
-
+	if e.table.Meta().CachedTableStatusType == model.CachedTableENABLE {
+		cond, err := e.table.(table.CachedTable).ReadCondition(e.ctx, e.startTS)
+		if err != nil {
+			return nil
+		}
+		if cond {
+			req.Reset()
+			return nil
+		}
+	}
 	err := e.result.Next(ctx, req)
 	if err != nil {
 		e.feedback.Invalidate()
@@ -277,9 +311,13 @@ func (e *IndexReaderExecutor) open(ctx context.Context, kvRanges []kv.KeyRange) 
 		e.dagPB.CollectExecutionSummaries = &collExec
 	}
 	e.kvRanges = kvRanges
+	cond, err := e.ReadFromCachedTable()
+	if err != nil {
+		return err
+	}
 	// Treat temporary table as dummy table, avoid sending distsql request to TiKV.
 	// In a test case IndexReaderExecutor is mocked and e.table is nil.
-	if e.table != nil && e.table.Meta().TempTableType != model.TempTableNone {
+	if e.table != nil && e.table.Meta().TempTableType != model.TempTableNone || cond {
 		return nil
 	}
 
@@ -308,6 +346,19 @@ func (e *IndexReaderExecutor) open(ctx context.Context, kvRanges []kv.KeyRange) 
 		return err
 	}
 	return nil
+}
+func (e *IndexLookUpExecutor) ReadFromCachedTable() (bool, error) {
+	if e.table.Meta().CachedTableStatusType != model.CachedTableENABLE {
+		return false, nil
+	}
+	c := e.table.(table.CachedTable)
+	//
+	cond, err := c.ReadCondition(e.ctx, e.startTS)
+	if err != nil {
+		return false, err
+	}
+	go c.UpdateWRLock(e.ctx)
+	return cond, nil
 }
 
 // IndexLookUpExecutor implements double read for index scan.
@@ -402,9 +453,12 @@ func (e *IndexLookUpExecutor) Open(ctx context.Context) error {
 		e.feedback.Invalidate()
 		return err
 	}
-
+	cond, err := e.ReadFromCachedTable()
+	if err != nil {
+		return err
+	}
 	// Treat temporary table as dummy table, avoid sending distsql request to TiKV.
-	if e.table.Meta().TempTableType != model.TempTableNone {
+	if e.table.Meta().TempTableType != model.TempTableNone || cond {
 		return nil
 	}
 
@@ -670,7 +724,18 @@ func (e *IndexLookUpExecutor) Close() error {
 	if e.table.Meta().TempTableType != model.TempTableNone {
 		return nil
 	}
-
+	if e.table.Meta() != nil && e.table.Meta().CachedTableStatusType == model.CachedTableENABLE {
+		cond, err := e.table.(table.CachedTable).ReadCondition(e.ctx, e.startTS)
+		if err != nil {
+			return err
+		}
+		if cond {
+			e.table.(table.CachedTable).ApplyUpdateLockMeta(cond)
+			return nil
+		} else {
+			e.table.(table.CachedTable).ApplyUpdateLockMeta(cond)
+		}
+	}
 	if !e.workerStarted || e.finished == nil {
 		return nil
 	}
@@ -695,7 +760,17 @@ func (e *IndexLookUpExecutor) Next(ctx context.Context, req *chunk.Chunk) error 
 		req.Reset()
 		return nil
 	}
-
+	if e.table.Meta().CachedTableStatusType == model.CachedTableENABLE {
+		c := e.table.(table.CachedTable)
+		cond, err := c.ReadCondition(e.ctx, e.startTS)
+		if err != nil {
+			return err
+		}
+		if cond {
+			req.Reset()
+			return nil
+		}
+	}
 	if !e.workerStarted {
 		if err := e.startWorkers(ctx, req.RequiredRows()); err != nil {
 			return err

@@ -17,6 +17,8 @@ package executor
 import (
 	"context"
 	"fmt"
+	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/table"
 	"sort"
 	"sync/atomic"
 
@@ -113,7 +115,7 @@ func (e *BatchPointGetExec) Open(context.Context) error {
 		// The snapshot may contains cache that can reduce RPC call.
 		snapshot = txn.GetSnapshot()
 	} else {
-		snapshot = e.ctx.GetSnapshotWithTS(e.snapshotTS)
+		snapshot = e.ctx.GetStore().GetSnapshot(kv.Version{Ver: e.snapshotTS})
 	}
 	if e.runtimeStats != nil {
 		snapshotStats := &txnsnapshot.SnapshotRuntimeStats{}
@@ -130,10 +132,12 @@ func (e *BatchPointGetExec) Open(context.Context) error {
 	snapshot.SetOption(kv.TaskID, stmtCtx.TaskID)
 	snapshot.SetOption(kv.ReadReplicaScope, e.readReplicaScope)
 	snapshot.SetOption(kv.IsStalenessReadOnly, e.isStaleness)
-	failpoint.Inject("assertBatchPointReplicaOption", func(val failpoint.Value) {
+	failpoint.Inject("assertBatchPointStalenessOption", func(val failpoint.Value) {
 		assertScope := val.(string)
-		if replicaReadType.IsClosestRead() && assertScope != e.readReplicaScope {
-			panic("batch point get replica option fail")
+		if len(assertScope) > 0 {
+			if e.isStaleness && assertScope != e.readReplicaScope {
+				panic("batch point get staleness option fail")
+			}
 		}
 	})
 
@@ -146,6 +150,12 @@ func (e *BatchPointGetExec) Open(context.Context) error {
 		})
 	}
 	setResourceGroupTagForTxn(stmtCtx, snapshot)
+	// Avoid network requests for the temporary table.
+	if e.tblInfo.TempTableType == model.TempTableGlobal {
+		snapshot = temporaryTableSnapshot{snapshot, nil}
+	} else if e.tblInfo.TempTableType == model.TempTableLocal {
+		snapshot = temporaryTableSnapshot{snapshot, e.ctx.GetSessionVars().TemporaryTableData}
+	}
 	var batchGetter kv.BatchGetter = snapshot
 	if txn.Valid() {
 		lock := e.tblInfo.Lock
@@ -157,9 +167,56 @@ func (e *BatchPointGetExec) Open(context.Context) error {
 			batchGetter = driver.NewBufferBatchGetter(txn.GetMemBuffer(), nil, snapshot)
 		}
 	}
+	if e.tblInfo.CachedTableStatusType == model.CachedTableENABLE {
+		tbl, ok := domain.GetDomain(e.ctx).InfoSchema().TableByID(e.tblInfo.ID)
+		if !ok {
+			return errors.New("Cached Table is not exist")
+		}
+		cachedTable := tbl.(table.CachedTable)
+		cond, err := cachedTable.ReadCondition(e.ctx, e.startTS)
+		if err != nil {
+			return err
+		}
+		if cond {
+			batchGetter = newcachedTableBatchGetter(e.ctx, cachedTable)
+		}
+	}
 	e.snapshot = snapshot
 	e.batchGetter = batchGetter
 	return nil
+}
+
+// Temporary table would always use memBuffer in session as snapshot.
+// temporaryTableSnapshot inherits kv.Snapshot and override the BatchGet methods to return empty.
+type temporaryTableSnapshot struct {
+	kv.Snapshot
+	sessionData variable.TemporaryTableData
+}
+
+func (s temporaryTableSnapshot) BatchGet(ctx context.Context, keys []kv.Key) (map[string][]byte, error) {
+	values := make(map[string][]byte)
+	if s.sessionData == nil {
+		return values, nil
+	}
+
+	for _, key := range keys {
+		val, err := s.sessionData.Get(ctx, key)
+		if err == kv.ErrNotExist {
+			continue
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		if len(val) == 0 {
+			continue
+		}
+
+		values[string(key)] = val
+	}
+
+	return values, nil
 }
 
 // Close implements the Executor interface.
@@ -167,6 +224,7 @@ func (e *BatchPointGetExec) Close() error {
 	if e.runtimeStats != nil && e.snapshot != nil {
 		e.snapshot.SetOption(kv.CollectRuntimeStats, nil)
 	}
+
 	e.inited = 0
 	e.index = 0
 	return nil
@@ -576,4 +634,28 @@ func (b *cacheBatchGetter) BatchGet(ctx context.Context, keys []kv.Key) (map[str
 
 func newCacheBatchGetter(ctx sessionctx.Context, tid int64, snapshot kv.Snapshot) *cacheBatchGetter {
 	return &cacheBatchGetter{ctx, tid, snapshot}
+}
+
+type cachedTableBatchGetter struct {
+	ctx         sessionctx.Context
+	cachedTable table.CachedTable
+}
+
+func (b *cachedTableBatchGetter) BatchGet(ctx context.Context, keys []kv.Key) (map[string][]byte, error) {
+	vals := make(map[string][]byte)
+	for _, key := range keys {
+		val, err := b.cachedTable.GetMemCached().Get(ctx, key)
+		if err != nil {
+			if !kv.ErrNotExist.Equal(err) {
+				return nil, err
+			}
+			continue
+		}
+		vals[string(key)] = val
+	}
+	return vals, nil
+}
+
+func newcachedTableBatchGetter(ctx sessionctx.Context, cachedTable table.CachedTable) *cachedTableBatchGetter {
+	return &cachedTableBatchGetter{ctx, cachedTable}
 }

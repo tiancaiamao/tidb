@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/pingcap/failpoint"
-	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/metrics"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/util"
@@ -553,7 +552,7 @@ func (tsr *RemoteTopSQLReporter) doReport(data reportData) {
 		return
 	}
 
-	agentAddr := config.GetGlobalConfig().TopSQL.ReceiverAddress
+	agentAddr := variable.TopSQLVariable.AgentAddress.Load()
 	timeout := reportTimeout
 	failpoint.Inject("resetTimeoutForTest", func(val failpoint.Value) {
 		if val.(bool) {

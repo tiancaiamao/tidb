@@ -17,7 +17,6 @@ package executor
 import (
 	"context"
 	"fmt"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -26,6 +25,7 @@ import (
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/ddl/placement"
 	"github.com/pingcap/tidb/distsql"
+	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/infoschema"
 	"github.com/pingcap/tidb/kv"
@@ -47,7 +47,6 @@ func (b *executorBuilder) buildPointGet(p *plannercore.PointGetPlan) Executor {
 		b.err = err
 		return nil
 	}
-
 	startTS, err := b.getSnapshotTS()
 	if err != nil {
 		b.err = err
@@ -70,7 +69,7 @@ func (b *executorBuilder) buildPointGet(p *plannercore.PointGetPlan) Executor {
 // PointGetExecutor executes point select query.
 type PointGetExecutor struct {
 	baseExecutor
-
+	dbInfo           *model.DBInfo
 	tblInfo          *model.TableInfo
 	handle           kv.Handle
 	idxInfo          *model.IndexInfo
@@ -116,10 +115,12 @@ func (e *PointGetExecutor) Init(p *plannercore.PointGetPlan, startTs uint64) {
 		e.lock = false
 		e.lockWaitTime = 0
 	}
+
 	e.rowDecoder = decoder
 	e.partInfo = p.PartitionInfo
 	e.columns = p.Columns
 	e.buildVirtualColumnInfo()
+
 }
 
 // buildVirtualColumnInfo saves virtual column indices and sort them in definition order
@@ -141,6 +142,7 @@ func (e *PointGetExecutor) Open(context.Context) error {
 		snapshotTS = txnCtx.GetForUpdateTS()
 	}
 	var err error
+
 	e.txn, err = e.ctx.Txn(false)
 	if err != nil {
 		return err
@@ -148,7 +150,7 @@ func (e *PointGetExecutor) Open(context.Context) error {
 	if e.txn.Valid() && txnCtx.StartTS == txnCtx.GetForUpdateTS() && txnCtx.StartTS == snapshotTS {
 		e.snapshot = e.txn.GetSnapshot()
 	} else {
-		e.snapshot = e.ctx.GetSnapshotWithTS(snapshotTS)
+		e.snapshot = e.ctx.GetStore().GetSnapshot(kv.Version{Ver: snapshotTS})
 	}
 	if err := e.verifyTxnScope(); err != nil {
 		return err
@@ -176,10 +178,12 @@ func (e *PointGetExecutor) Open(context.Context) error {
 			},
 		})
 	}
-	failpoint.Inject("assertPointReplicaOption", func(val failpoint.Value) {
+	failpoint.Inject("assertPointStalenessOption", func(val failpoint.Value) {
 		assertScope := val.(string)
-		if readReplicaType.IsClosestRead() && assertScope != e.readReplicaScope {
-			panic("point get replica option fail")
+		if len(assertScope) > 0 {
+			if e.isStaleness && assertScope != e.readReplicaScope {
+				panic("batch point get staleness option fail")
+			}
 		}
 	})
 	setResourceGroupTagForTxn(e.ctx.GetSessionVars().StmtCtx, e.snapshot)
@@ -191,6 +195,7 @@ func (e *PointGetExecutor) Close() error {
 	if e.runtimeStats != nil && e.snapshot != nil {
 		e.snapshot.SetOption(kv.CollectRuntimeStats, nil)
 	}
+
 	if e.idxInfo != nil && e.tblInfo != nil {
 		actRows := int64(0)
 		if e.runtimeStats != nil {
@@ -209,7 +214,7 @@ func (e *PointGetExecutor) Next(ctx context.Context, req *chunk.Chunk) error {
 		return nil
 	}
 	e.done = true
-
+	e.txn.StartTS()
 	var tblID int64
 	var err error
 	if e.partInfo != nil {
@@ -220,6 +225,7 @@ func (e *PointGetExecutor) Next(ctx context.Context, req *chunk.Chunk) error {
 	if e.lock {
 		e.updateDeltaForTableID(tblID)
 	}
+
 	if e.idxInfo != nil {
 		if isCommonHandleRead(e.tblInfo, e.idxInfo) {
 			handleBytes, err := EncodeUniqueIndexValuesForKey(e.ctx, e.tblInfo, e.idxInfo, e.idxVals)
@@ -381,7 +387,33 @@ func (e *PointGetExecutor) get(ctx context.Context, key kv.Key) ([]byte, error) 
 		val []byte
 		err error
 	)
+	e.ctx.GetSessionVars()
+	var cachedTable table.CachedTable
+	if e.tblInfo.CachedTableStatusType == model.CachedTableENABLE {
+		tbl, ok := domain.GetDomain(e.ctx).InfoSchema().TableByID(e.tblInfo.ID)
+		if !ok {
+			return nil, err
+		}
+		cachedTable = tbl.(table.CachedTable)
 
+		if cachedTable.IsFirstRead() {
+			err = cachedTable.LoadData(e.ctx)
+			if err != nil {
+				return nil, err
+			}
+		}
+		cond, err := cachedTable.ReadCondition(e.ctx, e.startTS)
+		if err != nil {
+			return nil, err
+		}
+		if cond {
+			cache, err := cachedTable.GetMemCached().Get(ctx, key)
+			if err != nil {
+				return nil, err
+			}
+			return cache, err
+		}
+	}
 	if e.txn.Valid() && !e.txn.IsReadOnly() {
 		// We cannot use txn.Get directly here because the snapshot in txn and the snapshot of e.snapshot may be
 		// different for pessimistic transaction.
@@ -403,6 +435,16 @@ func (e *PointGetExecutor) get(ctx context.Context, key kv.Key) ([]byte, error) 
 		// fallthrough to snapshot get.
 	}
 
+	// Global temporary table is always empty, so no need to send the request.
+	if e.tblInfo.TempTableType == model.TempTableGlobal {
+		return nil, nil
+	}
+
+	// Local temporary table always get snapshot value from session
+	if e.tblInfo.TempTableType == model.TempTableLocal {
+		return e.ctx.GetSessionVars().TemporaryTableSnapshotReader(e.tblInfo).Get(ctx, key)
+	}
+	e.ctx.GetSessionVars()
 	lock := e.tblInfo.Lock
 	if lock != nil && (lock.Tp == model.TableLockRead || lock.Tp == model.TableLockReadOnly) {
 		if e.ctx.GetSessionVars().EnablePointGetCache {
@@ -414,8 +456,11 @@ func (e *PointGetExecutor) get(ctx context.Context, key kv.Key) ([]byte, error) 
 			return val, nil
 		}
 	}
-	// if not read lock or table was unlock then snapshot get
 	return e.snapshot.Get(ctx, key)
+}
+
+func con2Table(table_ table.Table) table.CachedTable {
+	return table_.(table.CachedTable)
 }
 
 func (e *PointGetExecutor) verifyTxnScope() error {

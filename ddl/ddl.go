@@ -93,7 +93,7 @@ var (
 
 // DDL is responsible for updating schema in data store and maintaining in-memory InfoSchema cache.
 type DDL interface {
-	CreateSchema(ctx sessionctx.Context, schema model.CIStr, charsetInfo *ast.CharsetOpt, directPlacementOpts *model.PlacementSettings, placementPolicyRef *model.PolicyRefInfo) error
+	CreateSchema(ctx sessionctx.Context, name model.CIStr, charsetInfo *ast.CharsetOpt) error
 	AlterSchema(ctx sessionctx.Context, stmt *ast.AlterDatabaseStmt) error
 	DropSchema(ctx sessionctx.Context, schema model.CIStr) error
 	CreateTable(ctx sessionctx.Context, stmt *ast.CreateTableStmt) error
@@ -219,6 +219,7 @@ type ddlCtx struct {
 		interceptor Interceptor
 	}
 }
+
 
 func (dc *ddlCtx) isOwner() bool {
 	isOwner := dc.ownerManager.IsOwner()

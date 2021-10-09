@@ -116,7 +116,6 @@ type schemaVersionSyncer struct {
 	notifyCleanExpiredPathsCh chan struct{}
 	ctx                       context.Context
 	cancel                    context.CancelFunc
-	cleanGroup                sync.WaitGroup
 }
 
 // NewSchemaSyncer creates a new SchemaSyncer.
@@ -135,7 +134,7 @@ func NewSchemaSyncer(ctx context.Context, etcdCli *clientv3.Client, id string, o
 // PutKVToEtcd puts key value to etcd.
 // etcdCli is client of etcd.
 // retryCnt is retry time when an error occurs.
-// opts are configures of etcd Operations.
+// opts is configures of etcd Operations.
 func PutKVToEtcd(ctx context.Context, etcdCli *clientv3.Client, retryCnt int, key, val string,
 	opts ...clientv3.OpOption) error {
 	var err error
@@ -426,8 +425,6 @@ var NeededCleanTTL = int64(-60)
 
 func (s *schemaVersionSyncer) StartCleanWork() {
 	defer tidbutil.Recover(metrics.LabelDDLSyncer, "StartCleanWorker", nil, false)
-	s.cleanGroup.Add(1)
-	defer s.cleanGroup.Done()
 
 	for {
 		select {
@@ -458,7 +455,6 @@ func (s *schemaVersionSyncer) StartCleanWork() {
 
 func (s *schemaVersionSyncer) Close() {
 	s.cancel()
-	s.cleanGroup.Wait()
 
 	err := s.removeSelfVersionPath()
 	if err != nil {

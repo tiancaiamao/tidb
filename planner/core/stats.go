@@ -344,7 +344,7 @@ func (ds *DataSource) derivePathStatsAndTryHeuristics() error {
 		ds.possibleAccessPaths[0] = selected
 		ds.possibleAccessPaths = ds.possibleAccessPaths[:1]
 		// TODO: Can we make a more careful check on whether the optimization depends on mutable constants?
-		ds.ctx.GetSessionVars().StmtCtx.MaybeOverOptimized4PlanCache = true
+		ds.ctx.GetSessionVars().StmtCtx.OptimDependOnMutableConst = true
 		if ds.ctx.GetSessionVars().StmtCtx.InVerboseExplain {
 			var tableName string
 			if ds.TableAsName.O == "" {
@@ -433,7 +433,7 @@ func (ds *DataSource) DeriveStats(childStats []*property.StatsInfo, selfSchema *
 			}
 		}
 	}
-	if isPossibleIdxMerge && sessionAndStmtPermission && needConsiderIndexMerge && isReadOnlyTxn && ds.tableInfo.TempTableType != model.TempTableLocal {
+	if isPossibleIdxMerge && sessionAndStmtPermission && needConsiderIndexMerge && isReadOnlyTxn && ds.tableInfo.TempTableType != model.TempTableLocal && ds.tableInfo.CachedTableStatusType != model.CachedTableENABLE {
 		err := ds.generateAndPruneIndexMergePath(ds.indexMergeHints != nil)
 		if err != nil {
 			return nil, err
@@ -641,7 +641,7 @@ func (ds *DataSource) accessPathsForConds(conditions []expression.Expression, us
 					results[0] = path
 					results = results[:1]
 				}
-				ds.ctx.GetSessionVars().StmtCtx.MaybeOverOptimized4PlanCache = true
+				ds.ctx.GetSessionVars().StmtCtx.OptimDependOnMutableConst = true
 				break
 			}
 		} else {
@@ -667,7 +667,7 @@ func (ds *DataSource) accessPathsForConds(conditions []expression.Expression, us
 					results[0] = path
 					results = results[:1]
 				}
-				ds.ctx.GetSessionVars().StmtCtx.MaybeOverOptimized4PlanCache = true
+				ds.ctx.GetSessionVars().StmtCtx.OptimDependOnMutableConst = true
 				break
 			}
 		}

@@ -234,8 +234,6 @@ spilled-file-encryption-method = "plaintext"
 [pessimistic-txn]
 deadlock-history-capacity = 123
 deadlock-history-collect-retryable = true
-[top-sql]
-receiver-address = "127.0.0.1:10100"
 `)
 
 	require.NoError(t, err)
@@ -291,7 +289,6 @@ receiver-address = "127.0.0.1:10100"
 	require.Equal(t, uint(123), conf.PessimisticTxn.DeadlockHistoryCapacity)
 	require.True(t, conf.PessimisticTxn.DeadlockHistoryCollectRetryable)
 	require.False(t, conf.Experimental.EnableNewCharset)
-	require.Equal(t, "127.0.0.1:10100", conf.TopSQL.ReceiverAddress)
 
 	_, err = f.WriteString(`
 [log.file]

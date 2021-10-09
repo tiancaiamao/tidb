@@ -114,7 +114,6 @@ func (r *recordSet) Close() error {
 	return nil
 }
 
-// TODO replace createTestStatisticsSuite in main_test.go when migrate this file
 func (s *testStatisticsSuite) SetUpSuite(c *C) {
 	s.count = 100000
 	samples := make([]*SampleItem, 10000)

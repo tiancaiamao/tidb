@@ -2094,12 +2094,11 @@ type stmtSummaryTableRetriever struct {
 	table     *model.TableInfo
 	columns   []*model.ColumnInfo
 	retrieved bool
-	extractor *plannercore.StatementsSummaryExtractor
 }
 
 // retrieve implements the infoschemaRetriever interface
 func (e *stmtSummaryTableRetriever) retrieve(ctx context.Context, sctx sessionctx.Context) ([][]types.Datum, error) {
-	if e.extractor.SkipRequest || e.retrieved {
+	if e.retrieved {
 		return nil, nil
 	}
 	e.retrieved = true
@@ -2116,10 +2115,6 @@ func (e *stmtSummaryTableRetriever) retrieve(ctx context.Context, sctx sessionct
 	}
 	user := sctx.GetSessionVars().User
 	reader := stmtsummary.NewStmtSummaryReader(user, hasPriv(sctx, mysql.ProcessPriv), e.columns, instanceAddr)
-	if e.extractor.Enable {
-		checker := stmtsummary.NewStmtSummaryChecker(e.extractor.Digests)
-		reader.SetChecker(checker)
-	}
 	var rows [][]types.Datum
 	switch e.table.Name.O {
 	case infoschema.TableStatementsSummary,
@@ -2773,15 +2768,15 @@ func (e *memtableRetriever) setDataForRegionLabel(ctx sessionctx.Context) error 
 	var rows [][]types.Datum
 	rules, err := infosync.GetAllLabelRules(context.TODO())
 	failpoint.Inject("mockOutputOfRegionLabel", func() {
-		convert := func(i interface{}) []interface{} {
-			return []interface{}{i}
+		convert := func(i interface{}) interface{} {
+			return i
 		}
 		rules = []*label.Rule{
 			{
 				ID:       "schema/test/test_label",
 				Labels:   []label.Label{{Key: "merge_option", Value: "allow"}, {Key: "db", Value: "test"}, {Key: "table", Value: "test_label"}},
 				RuleType: "key-range",
-				Data: convert(map[string]interface{}{
+				Rule: convert(map[string]interface{}{
 					"start_key": "7480000000000000ff395f720000000000fa",
 					"end_key":   "7480000000000000ff3a5f720000000000fa",
 				}),
@@ -2807,21 +2802,17 @@ func (e *memtableRetriever) setDataForRegionLabel(ctx sessionctx.Context) error 
 		}
 
 		labels := rule.Labels.Restore()
-		var ranges []string
-		for _, data := range rule.Data {
-			if kv, ok := data.(map[string]interface{}); ok {
-				startKey := kv["start_key"]
-				endKey := kv["end_key"]
-				ranges = append(ranges, fmt.Sprintf("[%s, %s]", startKey, endKey))
-			}
+		keyRange := make(map[string]string)
+		for k, v := range rule.Rule.(map[string]interface{}) {
+			keyRange[k] = v.(string)
 		}
-		kr := strings.Join(ranges, ", ")
 
 		row := types.MakeDatums(
 			rule.ID,
 			rule.RuleType,
 			labels,
-			kr,
+			keyRange["start_key"],
+			keyRange["end_key"],
 		)
 		rows = append(rows, row)
 	}
@@ -2843,8 +2834,8 @@ func checkRule(rule *label.Rule) (dbName, tableName string, err error) {
 		err = errors.New("the label rule has no label")
 		return
 	}
-	if rule.Data == nil {
-		err = errors.New("the label rule has no data")
+	if rule.Rule == nil {
+		err = errors.New("the label rule has no rule")
 		return
 	}
 	dbName = s[1]

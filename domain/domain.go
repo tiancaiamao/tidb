@@ -79,7 +79,7 @@ type Domain struct {
 	sysSessionPool       *sessionPool
 	exit                 chan struct{}
 	etcdClient           *clientv3.Client
-	sysVarCache          sysVarCache // replaces GlobalVariableCache
+	sysVarCache          SysVarCache // replaces GlobalVariableCache
 	slowQuery            *topNSlowQueries
 	expensiveQueryHandle *expensivequery.Handle
 	wg                   sync.WaitGroup
@@ -151,12 +151,7 @@ func (do *Domain) loadInfoSchema(startTS uint64) (infoschema.InfoSchema, bool, i
 		return nil, false, currentSchemaVersion, nil, err
 	}
 
-	policies, err := do.fetchPolicies(m)
-	if err != nil {
-		return nil, false, currentSchemaVersion, nil, err
-	}
-
-	newISBuilder, err := infoschema.NewBuilder(do.Store()).InitWithDBInfos(schemas, bundles, policies, neededSchemaVersion)
+	newISBuilder, err := infoschema.NewBuilder(do.Store()).InitWithDBInfos(schemas, bundles, neededSchemaVersion)
 	if err != nil {
 		return nil, false, currentSchemaVersion, nil, err
 	}
@@ -168,14 +163,6 @@ func (do *Domain) loadInfoSchema(startTS uint64) (infoschema.InfoSchema, bool, i
 	is := newISBuilder.Build()
 	do.infoCache.Insert(is, startTS)
 	return is, false, currentSchemaVersion, nil, nil
-}
-
-func (do *Domain) fetchPolicies(m *meta.Meta) ([]*model.PolicyInfo, error) {
-	allPolicies, err := m.ListPolicies()
-	if err != nil {
-		return nil, err
-	}
-	return allPolicies, nil
 }
 
 func (do *Domain) fetchAllSchemasWithTables(m *meta.Meta) ([]*model.DBInfo, error) {
@@ -215,7 +202,7 @@ func (do *Domain) splitForConcurrentFetch(schemas []*model.DBInfo) [][]*model.DB
 	}
 	return splitted
 }
-
+// 圈梁 TODO:
 func (do *Domain) fetchSchemasWithTables(schemas []*model.DBInfo, m *meta.Meta, done chan error) {
 	for _, di := range schemas {
 		if di.State != model.StatePublic {
@@ -931,7 +918,7 @@ func (do *Domain) LoadPrivilegeLoop(ctx sessionctx.Context) error {
 // LoadSysVarCacheLoop create a goroutine loads sysvar cache in a loop,
 // it should be called only once in BootstrapSession.
 func (do *Domain) LoadSysVarCacheLoop(ctx sessionctx.Context) error {
-	err := do.rebuildSysVarCache()
+	err := do.sysVarCache.RebuildSysVarCache(ctx)
 	if err != nil {
 		return err
 	}
@@ -980,7 +967,7 @@ func (do *Domain) LoadSysVarCacheLoop(ctx sessionctx.Context) error {
 			}
 			count = 0
 			logutil.BgLogger().Debug("Rebuilding sysvar cache from etcd watch event.")
-			err := do.rebuildSysVarCache()
+			err := do.sysVarCache.RebuildSysVarCache(ctx)
 			metrics.LoadSysVarCacheCounter.WithLabelValues(metrics.RetLabel(err)).Inc()
 			if err != nil {
 				logutil.BgLogger().Error("LoadSysVarCacheLoop failed", zap.Error(err))
@@ -1387,7 +1374,7 @@ const (
 
 // NotifyUpdatePrivilege updates privilege key in etcd, TiDB client that watches
 // the key will get notification.
-func (do *Domain) NotifyUpdatePrivilege() error {
+func (do *Domain) NotifyUpdatePrivilege(ctx sessionctx.Context) {
 	if do.etcdClient != nil {
 		row := do.etcdClient.KV
 		_, err := row.Put(context.Background(), privilegeKey, "")
@@ -1396,19 +1383,19 @@ func (do *Domain) NotifyUpdatePrivilege() error {
 		}
 	}
 	// update locally
-	sysSessionPool := do.SysSessionPool()
-	ctx, err := sysSessionPool.Get()
-	if err != nil {
-		return err
+	exec := ctx.(sqlexec.RestrictedSQLExecutor)
+	if stmt, err := exec.ParseWithParams(context.Background(), `FLUSH PRIVILEGES`); err == nil {
+		_, _, err := exec.ExecRestrictedStmt(context.Background(), stmt)
+		if err != nil {
+			logutil.BgLogger().Error("unable to update privileges", zap.Error(err))
+		}
 	}
-	defer sysSessionPool.Put(ctx)
-	return do.PrivilegeHandle().Update(ctx.(sessionctx.Context))
 }
 
 // NotifyUpdateSysVarCache updates the sysvar cache key in etcd, which other TiDB
 // clients are subscribed to for updates. For the caller, the cache is also built
 // synchronously so that the effect is immediate.
-func (do *Domain) NotifyUpdateSysVarCache() {
+func (do *Domain) NotifyUpdateSysVarCache(ctx sessionctx.Context) {
 	if do.etcdClient != nil {
 		row := do.etcdClient.KV
 		_, err := row.Put(context.Background(), sysVarCacheKey, "")
@@ -1417,7 +1404,7 @@ func (do *Domain) NotifyUpdateSysVarCache() {
 		}
 	}
 	// update locally
-	if err := do.rebuildSysVarCache(); err != nil {
+	if err := do.sysVarCache.RebuildSysVarCache(ctx); err != nil {
 		logutil.BgLogger().Error("rebuilding sysvar cache failed", zap.Error(err))
 	}
 }

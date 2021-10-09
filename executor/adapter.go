@@ -35,7 +35,6 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/parser/terror"
 	"github.com/pingcap/tidb/config"
-	"github.com/pingcap/tidb/ddl/placement"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/infoschema"
@@ -234,7 +233,6 @@ func (a *ExecStmt) PointGet(ctx context.Context, is infoschema.InfoSchema) (*rec
 		return nil, err
 	}
 	a.Ctx.GetSessionVars().StmtCtx.Priority = kv.PriorityHigh
-
 	// try to reuse point get executor
 	if a.PsStmt.Executor != nil {
 		exec, ok := a.PsStmt.Executor.(*PointGetExecutor)
@@ -296,9 +294,6 @@ func (a *ExecStmt) RebuildPlan(ctx context.Context) (int64, error) {
 	a.SnapshotTS = ret.LastSnapshotTS
 	a.IsStaleness = ret.IsStaleness
 	a.ReplicaReadScope = ret.ReadReplicaScope
-	if a.Ctx.GetSessionVars().GetReplicaRead().IsClosestRead() && a.ReplicaReadScope == kv.GlobalReplicaScope {
-		logutil.BgLogger().Warn(fmt.Sprintf("tidb can't read closest replicas due to it haven't %s label", placement.DCLabelKey))
-	}
 	p, names, err := planner.Optimize(ctx, a.Ctx, a.StmtNode, a.InfoSchema)
 	if err != nil {
 		return 0, err
@@ -342,11 +337,12 @@ func (a *ExecStmt) Exec(ctx context.Context) (_ sqlexec.RecordSet, err error) {
 	}()
 
 	failpoint.Inject("assertStaleTSO", func(val failpoint.Value) {
-		if n, ok := val.(int); ok && a.IsStaleness {
+		if n, ok := val.(int); ok {
 			startTS := oracle.ExtractPhysical(a.SnapshotTS) / 1000
 			if n != int(startTS) {
 				panic(fmt.Sprintf("different tso %d != %d", n, startTS))
 			}
+			failpoint.Return()
 		}
 	})
 	sctx := a.Ctx

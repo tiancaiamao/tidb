@@ -32,8 +32,6 @@ func TestContainsAnyAsterisk(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		// copy iterator variable into a new variable, see issue #27779
-		test := test
 		t.Run(test.expression, func(t *testing.T) {
 			t.Parallel()
 			pe, err := ParseJSONPathExpr(test.expression)
@@ -62,8 +60,6 @@ func TestValidatePathExpr(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		// copy iterator variable into a new variable, see issue #27779
-		test := test
 		t.Run(test.expression, func(t *testing.T) {
 			t.Parallel()
 			pe, err := ParseJSONPathExpr(test.expression)
@@ -88,8 +84,6 @@ func TestPathExprToString(t *testing.T) {
 		{`$."\"hello\""`},
 	}
 	for _, test := range tests {
-		// copy iterator variable into a new variable, see issue #27779
-		test := test
 		t.Run(test.expression, func(t *testing.T) {
 			t.Parallel()
 			pe, err := ParseJSONPathExpr(test.expression)
@@ -115,8 +109,6 @@ func TestPushBackOneIndexLeg(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		// copy iterator variable into a new variable, see issue #27779
-		test := test
 		t.Run(test.expression, func(t *testing.T) {
 			t.Parallel()
 			pe, err := ParseJSONPathExpr(test.expression)

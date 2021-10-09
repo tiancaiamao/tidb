@@ -36,7 +36,6 @@ import (
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/privilege"
 	"github.com/pingcap/tidb/sessionctx"
-	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/temptable"
 	"github.com/pingcap/tidb/types"
@@ -745,6 +744,11 @@ func (p *preprocessor) checkCreateTableGrammar(stmt *ast.CreateTableStmt) {
 		p.err = ddl.ErrWrongTableName.GenWithStackByArgs(tName)
 		return
 	}
+	enableNoopFuncs := p.ctx.GetSessionVars().EnableNoopFuncs
+	if stmt.TemporaryKeyword == ast.TemporaryLocal && !enableNoopFuncs {
+		p.err = expression.ErrFunctionsNoopImpl.GenWithStackByArgs("CREATE TEMPORARY TABLE")
+		return
+	}
 	countPrimaryKey := 0
 	for _, colDef := range stmt.Cols {
 		if err := checkColumn(colDef); err != nil {
@@ -858,6 +862,11 @@ func (p *preprocessor) checkDropTableGrammar(stmt *ast.DropTableStmt) {
 }
 
 func (p *preprocessor) checkDropTemporaryTableGrammar(stmt *ast.DropTableStmt) {
+	if stmt.TemporaryKeyword == ast.TemporaryLocal && !p.ctx.GetSessionVars().EnableNoopFuncs {
+		p.err = expression.ErrFunctionsNoopImpl.GenWithStackByArgs("DROP TEMPORARY TABLE")
+		return
+	}
+
 	currentDB := model.NewCIStr(p.ctx.GetSessionVars().CurrentDB)
 	for _, t := range stmt.Tables {
 		if isIncorrectName(t.Name.String()) {
@@ -976,16 +985,11 @@ func (p *preprocessor) checkCreateIndexGrammar(stmt *ast.CreateIndexStmt) {
 }
 
 func (p *preprocessor) checkGroupBy(stmt *ast.GroupByClause) {
-	noopFuncsMode := p.ctx.GetSessionVars().NoopFuncsMode
+	enableNoopFuncs := p.ctx.GetSessionVars().EnableNoopFuncs
 	for _, item := range stmt.Items {
-		if !item.NullOrder && noopFuncsMode != variable.OnInt {
-			err := expression.ErrFunctionsNoopImpl.GenWithStackByArgs("GROUP BY expr ASC|DESC")
-			if noopFuncsMode == variable.OffInt {
-				p.err = err
-				return
-			}
-			// NoopFuncsMode is Warn, append an error
-			p.ctx.GetSessionVars().StmtCtx.AppendWarning(err)
+		if !item.NullOrder && !enableNoopFuncs {
+			p.err = expression.ErrFunctionsNoopImpl.GenWithStackByArgs("GROUP BY expr ASC|DESC")
+			return
 		}
 	}
 }
@@ -1533,36 +1537,27 @@ func (p *preprocessor) handleAsOfAndReadTS(node *ast.AsOfClause) {
 			return
 		}
 	}
-	scope := config.GetTxnScopeFromConfig()
-	if p.ctx.GetSessionVars().GetReplicaRead().IsClosestRead() && scope != kv.GlobalReplicaScope {
-		p.ReadReplicaScope = scope
-	}
-
 	// If the statement is in auto-commit mode, we will check whether there exists read_ts, if exists,
 	// we will directly use it. The txnScope will be defined by the zone label, if it is not set, we will use
 	// global txnScope directly.
-	readTS := p.ctx.GetSessionVars().TxnReadTS.UseTxnReadTS()
-	readStaleness := p.ctx.GetSessionVars().ReadStaleness
-	var ts uint64
-	switch {
-	case readTS > 0:
-		ts = readTS
+	ts := p.ctx.GetSessionVars().TxnReadTS.UseTxnReadTS()
+	if ts > 0 {
 		if node != nil {
 			p.err = ErrAsOf.FastGenWithCause("can't use select as of while already set transaction as of")
 			return
 		}
+		// it means we meet following case:
+		// 1. set transaction read only as of timestamp ts
+		// 2. select statement
 		if !p.initedLastSnapshotTS {
 			p.SnapshotTSEvaluator = func(sessionctx.Context) (uint64, error) {
 				return ts, nil
 			}
 			p.LastSnapshotTS = ts
-			p.IsStaleness = true
+			p.setStalenessReturn()
 		}
-	case readTS == 0 && node != nil:
-		// If we didn't use read_ts, and node isn't nil, it means we use 'select table as of timestamp ... '
-		// for stale read
-		// It means we meet following case:
-		// select statement with as of timestamp
+	}
+	if node != nil {
 		ts, p.err = calculateTsExpr(p.ctx, node)
 		if p.err != nil {
 			return
@@ -1571,28 +1566,14 @@ func (p *preprocessor) handleAsOfAndReadTS(node *ast.AsOfClause) {
 			p.err = errors.Trace(err)
 			return
 		}
+		// It means we meet following case:
+		// select statement with as of timestamp
 		if !p.initedLastSnapshotTS {
 			p.SnapshotTSEvaluator = func(ctx sessionctx.Context) (uint64, error) {
 				return calculateTsExpr(ctx, node)
 			}
 			p.LastSnapshotTS = ts
-			p.IsStaleness = true
-		}
-	case readTS == 0 && node == nil && readStaleness != 0:
-		ts, p.err = calculateTsWithReadStaleness(p.ctx, readStaleness)
-		if p.err != nil {
-			return
-		}
-		if err := sessionctx.ValidateStaleReadTS(context.Background(), p.ctx, ts); err != nil {
-			p.err = errors.Trace(err)
-			return
-		}
-		if !p.initedLastSnapshotTS {
-			p.SnapshotTSEvaluator = func(ctx sessionctx.Context) (uint64, error) {
-				return calculateTsWithReadStaleness(p.ctx, readStaleness)
-			}
-			p.LastSnapshotTS = ts
-			p.IsStaleness = true
+			p.setStalenessReturn()
 		}
 	}
 	if p.LastSnapshotTS != ts {
@@ -1637,4 +1618,10 @@ func (p *preprocessor) ensureInfoSchema() infoschema.InfoSchema {
 	}
 	p.InfoSchema = p.ctx.GetInfoSchema().(infoschema.InfoSchema)
 	return p.InfoSchema
+}
+
+func (p *preprocessor) setStalenessReturn() {
+	scope := config.GetTxnScopeFromConfig()
+	p.IsStaleness = true
+	p.ReadReplicaScope = scope
 }

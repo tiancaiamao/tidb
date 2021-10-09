@@ -2066,11 +2066,7 @@ func DatumsToString(datums []Datum, handleSpecialValue bool) (string, error) {
 		if err != nil {
 			return "", errors.Trace(err)
 		}
-		if datum.Kind() == KindString {
-			strs = append(strs, fmt.Sprintf("%q", str))
-		} else {
-			strs = append(strs, str)
-		}
+		strs = append(strs, str)
 	}
 	size := len(datums)
 	if size > 1 {

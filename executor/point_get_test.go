@@ -122,7 +122,6 @@ func (s *testPointGetSuite) TestPointGet(c *C) {
 	tk.MustQuery(`select b, b from t where a = 1`).Check(testkit.Rows(
 		"<nil> <nil>"))
 }
-
 func (s *testPointGetSuite) TestPointGetOverflow(c *C) {
 	tk := testkit.NewTestKit(c, s.store)
 	tk.MustExec("use test")

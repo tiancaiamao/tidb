@@ -17,9 +17,6 @@ package infoschema
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strings"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/parser/charset"
@@ -33,6 +30,8 @@ import (
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
 	"github.com/pingcap/tidb/util/domainutil"
+	"sort"
+	"strings"
 )
 
 // Builder builds a new InfoSchema.
@@ -54,8 +53,6 @@ func (b *Builder) ApplyDiff(m *meta.Meta, diff *model.SchemaDiff) ([]int64, erro
 		return b.applyDropSchema(diff.SchemaID), nil
 	case model.ActionModifySchemaCharsetAndCollate:
 		return nil, b.applyModifySchemaCharsetAndCollate(m, diff)
-	case model.ActionModifySchemaDefaultPlacement:
-		return nil, b.applyModifySchemaDefaultPlacement(m, diff)
 	case model.ActionCreatePlacementPolicy:
 		return nil, b.applyCreatePolicy(m, diff)
 	case model.ActionDropPlacementPolicy:
@@ -84,10 +81,6 @@ func (b *Builder) ApplyDiff(m *meta.Meta, diff *model.SchemaDiff) ([]int64, erro
 	}
 	// handle placement rule cache
 	switch diff.Type {
-	case model.ActionCreateTable:
-		if err := b.applyPlacementUpdate(placement.GroupID(newTableID)); err != nil {
-			return nil, errors.Trace(err)
-		}
 	case model.ActionDropTable:
 		b.applyPlacementDelete(placement.GroupID(oldTableID))
 	case model.ActionTruncateTable:
@@ -122,6 +115,11 @@ func (b *Builder) ApplyDiff(m *meta.Meta, diff *model.SchemaDiff) ([]int64, erro
 			diff.Type != model.ActionAlterSequence {
 			oldAllocs, _ := b.is.AllocByID(oldTableID)
 			allocs = filterAllocators(diff, oldAllocs)
+		}
+		if diff.Type == model.ActionEnableCachedTable  {
+			return b.applyEnableCachedTable(m, dbInfo, diff, allocs)
+		} else if diff.Type == model.ActionDisableCachedTable {
+			return b.applyDisableCachedTable(m, dbInfo, diff, allocs)
 		}
 
 		tmpIDs := tblIDs
@@ -263,7 +261,7 @@ func (b *Builder) applyCreatePolicy(m *meta.Meta, diff *model.SchemaDiff) error 
 			fmt.Sprintf("(Policy ID %d)", diff.SchemaID),
 		)
 	}
-	b.is.setPolicy(po)
+	b.is.policyMap[po.Name.L] = po
 	return nil
 }
 
@@ -279,7 +277,7 @@ func (b *Builder) applyAlterPolicy(m *meta.Meta, diff *model.SchemaDiff) ([]int6
 		)
 	}
 
-	b.is.setPolicy(po)
+	b.is.policyMap[po.Name.L] = po
 	// TODO: return the policy related table ids
 	return []int64{}, nil
 }
@@ -317,29 +315,12 @@ func (b *Builder) applyModifySchemaCharsetAndCollate(m *meta.Meta, diff *model.S
 	return nil
 }
 
-func (b *Builder) applyModifySchemaDefaultPlacement(m *meta.Meta, diff *model.SchemaDiff) error {
-	di, err := m.GetDatabase(diff.SchemaID)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if di == nil {
-		// This should never happen.
-		return ErrDatabaseNotExists.GenWithStackByArgs(
-			fmt.Sprintf("(Schema ID %d)", diff.SchemaID),
-		)
-	}
-	newDbInfo := b.copySchemaTables(di.Name.L)
-	newDbInfo.PlacementPolicyRef = di.PlacementPolicyRef
-	newDbInfo.DirectPlacementOpts = di.DirectPlacementOpts
-	return nil
-}
-
 func (b *Builder) applyDropPolicy(PolicyID int64) []int64 {
 	po, ok := b.is.PolicyByID(PolicyID)
 	if !ok {
 		return nil
 	}
-	b.is.deletePolicy(po.Name.L)
+	delete(b.is.policyMap, po.Name.L)
 	// TODO: return the policy related table ids
 	return []int64{}
 }
@@ -452,6 +433,7 @@ func (b *Builder) applyCreateTable(m *meta.Meta, dbInfo *model.DBInfo, tableID i
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+
 	tableNames := b.is.schemaMap[dbInfo.Name.L]
 	tableNames.tables[tblInfo.Name.L] = tbl
 	bucketIdx := tableBucketIdx(tableID)
@@ -557,7 +539,6 @@ func (b *Builder) InitWithOldInfoSchema(oldSchema InfoSchema) *Builder {
 	b.copySchemasMap(oldIS)
 	b.copyBundlesMap(oldIS)
 	b.copyPoliciesMap(oldIS)
-
 	copy(b.is.sortedTablesBuckets, oldIS.sortedTablesBuckets)
 	return b
 }
@@ -577,6 +558,8 @@ func (b *Builder) copyBundlesMap(oldIS *infoSchema) {
 
 func (b *Builder) copyPoliciesMap(oldIS *infoSchema) {
 	is := b.is
+	is.policyMutex.Lock()
+	defer is.policyMutex.Unlock()
 	for _, v := range oldIS.AllPlacementPolicies() {
 		is.policyMap[v.Name.L] = v
 	}
@@ -599,15 +582,11 @@ func (b *Builder) copySchemaTables(dbName string) *model.DBInfo {
 }
 
 // InitWithDBInfos initializes an empty new InfoSchema with a slice of DBInfo, all placement rules, and schema version.
-func (b *Builder) InitWithDBInfos(dbInfos []*model.DBInfo, bundles []*placement.Bundle, policies []*model.PolicyInfo, schemaVersion int64) (*Builder, error) {
+func (b *Builder) InitWithDBInfos(dbInfos []*model.DBInfo, bundles []*placement.Bundle, schemaVersion int64) (*Builder, error) {
 	info := b.is
 	info.schemaMetaVersion = schemaVersion
 	for _, bundle := range bundles {
 		info.SetBundle(bundle)
-	}
-	// build the policies.
-	for _, policy := range policies {
-		info.setPolicy(policy)
 	}
 
 	for _, di := range dbInfos {
@@ -655,6 +634,80 @@ func (b *Builder) createSchemaTablesForDB(di *model.DBInfo, tableFromMeta tableF
 	return nil
 }
 
+func (b *Builder) applyEnableCachedTable(m *meta.Meta, dbInfo *model.DBInfo, diff *model.SchemaDiff, allocs autoid.Allocators) ([]int64, error) {
+	tblInfo, err := m.GetTable(dbInfo.ID, diff.TableID)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	if tblInfo == nil {
+		// When we apply an old schema diff, the table may has been dropped already, so we need to fall back to
+		// full load.
+		return nil, ErrTableNotExists.GenWithStackByArgs(
+			fmt.Sprintf("(Schema ID %d)", dbInfo.ID),
+			fmt.Sprintf("(Table ID %d)", diff.TableID),
+		)
+	}
+	ConvertCharsetCollateToLowerCaseIfNeed(tblInfo)
+	ConvertOldVersionUTF8ToUTF8MB4IfNeed(tblInfo)
+
+	if len(allocs) == 0 {
+		allocs = autoid.NewAllocatorsFromTblInfo(b.store, dbInfo.ID, tblInfo)
+	} else {
+		tblVer := autoid.AllocOptionTableInfoVersion(tblInfo.Version)
+		newAlloc := autoid.NewAllocator(b.store, dbInfo.ID, tblInfo.ID, tblInfo.IsAutoIncColUnsigned(), autoid.RowIDAllocType, tblVer)
+		allocs = append(allocs, newAlloc)
+	}
+	tbl, err := tables.TableFromMeta(allocs, tblInfo)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	cachedTable := tbl.(table.CachedTable)
+	tableNames := b.is.schemaMap[dbInfo.Name.L]
+	tableNames.tables[tblInfo.Name.L] = cachedTable
+	bucketIdx := tableBucketIdx(diff.TableID)
+	sortedTbls := b.is.sortedTablesBuckets[bucketIdx]
+	sortedTbls[sortedTbls.searchTable(diff.TableID)] = cachedTable
+	dbInfo.Tables = append(dbInfo.Tables, cachedTable.Meta())
+	return nil, nil
+
+
+}
+func (b *Builder) applyDisableCachedTable(m *meta.Meta, dbInfo *model.DBInfo, diff *model.SchemaDiff, allocs autoid.Allocators) ([]int64, error) {
+	tblInfo, err := m.GetTable(dbInfo.ID, diff.TableID)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	if tblInfo == nil {
+		// When we apply an old schema diff, the table may has been dropped already, so we need to fall back to
+		// full load.
+		return nil, ErrTableNotExists.GenWithStackByArgs(
+			fmt.Sprintf("(Schema ID %d)", dbInfo.ID),
+			fmt.Sprintf("(Table ID %d)", diff.TableID),
+		)
+	}
+	ConvertCharsetCollateToLowerCaseIfNeed(tblInfo)
+	ConvertOldVersionUTF8ToUTF8MB4IfNeed(tblInfo)
+
+	if len(allocs) == 0 {
+		allocs = autoid.NewAllocatorsFromTblInfo(b.store, dbInfo.ID, tblInfo)
+	} else {
+		tblVer := autoid.AllocOptionTableInfoVersion(tblInfo.Version)
+		newAlloc := autoid.NewAllocator(b.store, dbInfo.ID, tblInfo.ID, tblInfo.IsAutoIncColUnsigned(), autoid.RowIDAllocType, tblVer)
+		allocs = append(allocs, newAlloc)
+	}
+	tbl, err := tables.TableFromMeta(allocs, tblInfo)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	tableNames := b.is.schemaMap[dbInfo.Name.L]
+	tableNames.tables[tblInfo.Name.L] = tbl
+	bucketIdx := tableBucketIdx(diff.TableID)
+	sortedTbls := b.is.sortedTablesBuckets[bucketIdx]
+	sortedTbls[sortedTbls.searchTable(diff.TableID)] = tbl
+	dbInfo.Tables = append(dbInfo.Tables, tbl.Meta())
+
+	return nil, nil
+}
 type virtualTableDriver struct {
 	*model.DBInfo
 	TableFromMeta tableFromMetaFunc

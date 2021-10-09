@@ -147,12 +147,12 @@ func (s *Scanner) tryDecodeToUTF8String(sql string) string {
 		}
 		return sql
 	}
-	utf8Lit, err := s.encoding.Decode(nil, Slice(sql))
-	if err != nil {
-		s.AppendError(err)
+	utf8Lit, ok := s.encoding.Decode(Slice(sql))
+	if !ok {
+		s.AppendError(errors.Errorf("Cannot convert string '%x' from %s to utf8mb4", sql, s.encoding.Name()))
 		s.lastErrorAsWarn()
 	}
-	return string(utf8Lit)
+	return utf8Lit
 }
 
 func (s *Scanner) getNextToken() int {
@@ -240,16 +240,6 @@ func (s *Scanner) Lex(v *yySymType) int {
 	}
 
 	return tok
-}
-
-// LexLiteral returns the value of the converted literal
-func (s *Scanner) LexLiteral() interface{} {
-	symType := &yySymType{}
-	s.Lex(symType)
-	if symType.item == nil {
-		return symType.ident
-	}
-	return symType.item
 }
 
 // SetSQLMode sets the SQL mode for scanner.

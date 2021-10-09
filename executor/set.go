@@ -182,7 +182,7 @@ func (e *SetExecutor) setSysVariable(ctx context.Context, name string, v *expres
 		}
 	}
 
-	err = e.loadSnapshotInfoSchemaIfNeeded(name, newSnapshotTS)
+	err = e.loadSnapshotInfoSchemaIfNeeded(newSnapshotTS)
 	if err != nil {
 		fallbackOldSnapshotTS()
 		return err
@@ -255,10 +255,7 @@ func (e *SetExecutor) getVarValue(v *expression.VarAssignment, sysVar *variable.
 	return nativeVal.ToString()
 }
 
-func (e *SetExecutor) loadSnapshotInfoSchemaIfNeeded(name string, snapshotTS uint64) error {
-	if name != variable.TiDBSnapshot && name != variable.TiDBTxnReadTS {
-		return nil
-	}
+func (e *SetExecutor) loadSnapshotInfoSchemaIfNeeded(snapshotTS uint64) error {
 	vars := e.ctx.GetSessionVars()
 	if snapshotTS == 0 {
 		vars.SnapshotInfoschema = nil

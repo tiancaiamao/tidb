@@ -19,6 +19,7 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/distsql"
+	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/kv"
 	plannercore "github.com/pingcap/tidb/planner/core"
@@ -92,7 +93,7 @@ func (m *memIndexReader) getMemRows() ([][]types.Datum, error) {
 	}
 
 	mutableRow := chunk.MutRowFromTypes(m.retFieldTypes)
-	err := iterTxnMemBuffer(m.ctx, m.kvRanges, func(key, value []byte) error {
+	err := iterTxnMemBuffer(m.table, m.ctx, m.kvRanges, func(key, value []byte) error {
 		data, err := m.decodeIndexKeyValue(key, value, tps)
 		if err != nil {
 			return err
@@ -201,12 +202,12 @@ func buildMemTableReader(us *UnionScanExec, tblReader *TableReaderExecutor) *mem
 // TODO: Try to make memXXXReader lazy, There is no need to decode many rows when parent operator only need 1 row.
 func (m *memTableReader) getMemRows() ([][]types.Datum, error) {
 	mutableRow := chunk.MutRowFromTypes(m.retFieldTypes)
-	err := iterTxnMemBuffer(m.ctx, m.kvRanges, func(key, value []byte) error {
+
+	err := iterTxnMemBuffer(m.table, m.ctx, m.kvRanges, func(key, value []byte) error {
 		row, err := m.decodeRecordKeyValue(key, value)
 		if err != nil {
 			return err
 		}
-
 		mutableRow.SetDatums(row...)
 		matched, _, err := expression.EvalBool(m.ctx, m.conditions, mutableRow.ToRow())
 		if err != nil || !matched {
@@ -319,10 +320,24 @@ func hasColVal(data [][]byte, colIDs map[int64]int, id int64) bool {
 
 type processKVFunc func(key, value []byte) error
 
-func iterTxnMemBuffer(ctx sessionctx.Context, kvRanges []kv.KeyRange, fn processKVFunc) error {
+func iterTxnMemBuffer(tblInfo *model.TableInfo, ctx sessionctx.Context, kvRanges []kv.KeyRange, fn processKVFunc) error {
 	txn, err := ctx.Txn(true)
 	if err != nil {
 		return err
+	}
+	var cachedTable table.CachedTable
+	if tblInfo.CachedTableStatusType == model.CachedTableENABLE {
+		tbl, ok := domain.GetDomain(ctx).InfoSchema().TableByID(tblInfo.ID)
+		if !ok {
+			return nil
+		}
+		cachedTable = tbl.(table.CachedTable)
+		if cachedTable.IsFirstRead() {
+			err = cachedTable.LoadData(ctx)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	tempTableData := ctx.GetSessionVars().TemporaryTableData
@@ -339,7 +354,18 @@ func iterTxnMemBuffer(ctx sessionctx.Context, kvRanges []kv.KeyRange, fn process
 				return err
 			}
 		}
+		// 保证走到这里的肯定是能读的。不然过来也没有意义
+		if cachedTable != nil {
+			snapIter, err := cachedTable.GetMemCached().Iter(rg.StartKey, rg.EndKey)
+			if err != nil {
+				return err
+			}
 
+			iter, err = transaction.NewUnionIter(iter, snapIter, false)
+			if err != nil {
+				return err
+			}
+		}
 		for ; iter.Valid(); err = iter.Next() {
 			if err != nil {
 				return err
@@ -365,7 +391,7 @@ func reverseDatumSlice(rows [][]types.Datum) {
 
 func (m *memIndexReader) getMemRowsHandle() ([]kv.Handle, error) {
 	handles := make([]kv.Handle, 0, m.addedRowsLen)
-	err := iterTxnMemBuffer(m.ctx, m.kvRanges, func(key, value []byte) error {
+	err := iterTxnMemBuffer(m.table, m.ctx, m.kvRanges, func(key, value []byte) error {
 		handle, err := tablecodec.DecodeIndexHandle(key, value, len(m.index.Columns))
 		if err != nil {
 			return err

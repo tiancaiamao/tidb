@@ -1051,7 +1051,6 @@ const (
 	ErrPlacementPolicyExists              = 8238
 	ErrPlacementPolicyNotExists           = 8239
 	ErrPlacementPolicyWithDirectOption    = 8240
-	ErrPlacementPolicyInUse               = 8241
 
 	// TiKV/PD/TiFlash errors.
 	ErrPDServerTimeout           = 9001

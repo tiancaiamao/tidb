@@ -97,8 +97,6 @@ func TestEscapeBackslash(t *testing.T) {
 		},
 	}
 	for _, v := range tests {
-		// copy iterator variable into a new variable, see issue #27779
-		v := v
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, v.output, escapeBytesBackslash(nil, v.input))
@@ -389,8 +387,6 @@ func TestEscapeSQL(t *testing.T) {
 		},
 	}
 	for _, v := range tests {
-		// copy iterator variable into a new variable, see issue #27779
-		v := v
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 			r3 := new(strings.Builder)

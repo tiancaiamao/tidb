@@ -59,23 +59,24 @@ var (
 //
 
 var (
-	mMetaPrefix       = []byte("m")
-	mNextGlobalIDKey  = []byte("NextGlobalID")
-	mSchemaVersionKey = []byte("SchemaVersionKey")
-	mDBs              = []byte("DBs")
-	mDBPrefix         = "DB"
-	mTablePrefix      = "Table"
-	mSequencePrefix   = "SID"
-	mSeqCyclePrefix   = "SequenceCycle"
-	mTableIDPrefix    = "TID"
-	mIncIDPrefix      = "IID"
-	mRandomIDPrefix   = "TARID"
-	mBootstrapKey     = []byte("BootstrapKey")
-	mSchemaDiffPrefix = "Diff"
-	mPolicies         = []byte("Policies")
-	mPolicyPrefix     = "Policy"
-	mPolicyGlobalID   = []byte("PolicyGlobalID")
-	mPolicyMagicByte  = CurrentMagicByteVer
+	mMetaPrefix                = []byte("m")
+	mNextGlobalIDKey           = []byte("NextGlobalID")
+	mSchemaVersionKey          = []byte("SchemaVersionKey")
+	mDBs                       = []byte("DBs")
+	mDBPrefix                  = "DB"
+	mTablePrefix               = "Table"
+	mSequencePrefix            = "SID"
+	mSeqCyclePrefix            = "SequenceCycle"
+	mTableIDPrefix             = "TID"
+	mIncIDPrefix               = "IID"
+	mRandomIDPrefix            = "TARID"
+	mBootstrapKey              = []byte("BootstrapKey")
+	mSchemaDiffPrefix          = "Diff"
+	mPolicies                  = []byte("Policies")
+	mPolicyPrefix              = "Policy"
+	mPolicyGlobalID            = []byte("PolicyGlobalID")
+	mPolicyMagicByte           = CurrentMagicByteVer
+	mCachedTableLockInfoPrefix = "CachedTableLockMetaInfo"
 )
 
 const (
@@ -182,7 +183,9 @@ func (m *Meta) policyKey(policyID int64) []byte {
 func (m *Meta) dbKey(dbID int64) []byte {
 	return []byte(fmt.Sprintf("%s:%d", mDBPrefix, dbID))
 }
-
+func (m *Meta) cachedTableLockInfoKey(tableID int64) []byte {
+	return []byte(fmt.Sprintf("%s:%d", mCachedTableLockInfoPrefix, tableID))
+}
 func (m *Meta) autoTableIDKey(tableID int64) []byte {
 	return []byte(fmt.Sprintf("%s:%d", mTableIDPrefix, tableID))
 }
@@ -224,6 +227,41 @@ func (m *Meta) GetAutoIDAccessors(dbID, tableID int64) AutoIDAccessors {
 	return NewAutoIDAccessors(m, dbID, tableID)
 }
 
+// GenSequenceValue adds step to the sequence value and returns the sum.
+func (m *Meta) GenSequenceValue(dbID, sequenceID, step int64) (int64, error) {
+	// Check if DB exists.
+	dbKey := m.dbKey(dbID)
+	if err := m.checkDBExists(dbKey); err != nil {
+		return 0, errors.Trace(err)
+	}
+	// Check if sequence exists.
+	tableKey := m.tableKey(sequenceID)
+	if err := m.checkTableExists(dbKey, tableKey); err != nil {
+		return 0, errors.Trace(err)
+	}
+	return m.txn.HInc(dbKey, m.sequenceKey(sequenceID), step)
+}
+
+// GetSequenceValue gets current sequence value with sequence id.
+func (m *Meta) GetSequenceValue(dbID int64, sequenceID int64) (int64, error) {
+	return m.txn.HGetInt64(m.dbKey(dbID), m.sequenceKey(sequenceID))
+}
+
+// SetSequenceValue sets start value when sequence in cycle.
+func (m *Meta) SetSequenceValue(dbID int64, sequenceID int64, start int64) error {
+	return m.txn.HSet(m.dbKey(dbID), m.sequenceKey(sequenceID), []byte(strconv.FormatInt(start, 10)))
+}
+
+// GetSequenceCycle gets current sequence cycle times with sequence id.
+func (m *Meta) GetSequenceCycle(dbID int64, sequenceID int64) (int64, error) {
+	return m.txn.HGetInt64(m.dbKey(dbID), m.sequenceCycleKey(sequenceID))
+}
+
+// SetSequenceCycle sets cycle times value when sequence in cycle.
+func (m *Meta) SetSequenceCycle(dbID int64, sequenceID int64, round int64) error {
+	return m.txn.HSet(m.dbKey(dbID), m.sequenceCycleKey(sequenceID), []byte(strconv.FormatInt(round, 10)))
+}
+
 // GetSchemaVersion gets current global schema version.
 func (m *Meta) GetSchemaVersion() (int64, error) {
 	return m.txn.GetInt64(mSchemaVersionKey)
@@ -233,6 +271,7 @@ func (m *Meta) GetSchemaVersion() (int64, error) {
 func (m *Meta) GenSchemaVersion() (int64, error) {
 	return m.txn.Inc(mSchemaVersionKey, 1)
 }
+
 
 func (m *Meta) checkPolicyExists(policyKey []byte) error {
 	v, err := m.txn.HGet(mPolicies, policyKey)
@@ -305,6 +344,30 @@ func (m *Meta) CreatePolicy(policy *model.PolicyInfo) error {
 		return errors.Trace(err)
 	}
 	return m.txn.HSet(mPolicies, policyKey, attachMagicByte(data))
+}
+// SetCachedTableLockInfo sets cached table lock info when table is cached table
+func (m *Meta) SetCachedTableLockInfo(tableID int64, info *CachedTableLockMetaInfo) error {
+	data, err := json.Marshal(info)
+	if err != nil {
+		return err
+	}
+	return m.txn.Set(m.cachedTableLockInfoKey(tableID), data)
+}
+
+// GetCachedTableLockInfo gets cached table lock info when table is cached table
+func (m *Meta) GetCachedTableLockInfo(tableID int64) (*CachedTableLockMetaInfo, error) {
+	cachedTableLockInfo := &CachedTableLockMetaInfo{}
+	key := m.cachedTableLockInfoKey(tableID)
+
+	value, err := m.txn.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(value, cachedTableLockInfo)
+	if err != nil {
+		return nil, err
+	}
+	return cachedTableLockInfo, nil
 }
 
 // UpdatePolicy updates a policy.
@@ -662,6 +725,9 @@ func (m *Meta) GetTable(dbID int64, tableID int64) (*model.TableInfo, error) {
 	tableInfo := &model.TableInfo{}
 	err = json.Unmarshal(value, tableInfo)
 	return tableInfo, errors.Trace(err)
+}
+func (m *Meta) name() {
+
 }
 
 // DDL job structure

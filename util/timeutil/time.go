@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/pingcap/tidb/util/logutil"
-	"go.uber.org/atomic"
+	"github.com/uber-go/atomic"
 	"go.uber.org/zap"
 )
 

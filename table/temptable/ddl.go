@@ -149,7 +149,6 @@ func ensureSessionData(sctx sessionctx.Context) (variable.TemporaryTableData, er
 		if err != nil {
 			return nil, err
 		}
-
 		sessVars.TemporaryTableData = variable.NewTemporaryTableData(bufferTxn.GetMemBuffer())
 	}
 

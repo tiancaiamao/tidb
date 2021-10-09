@@ -23,7 +23,7 @@ import (
 	"github.com/pingcap/tidb/util/hack"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/pingcap/tidb/util/topsql/tracecpu"
-	"go.uber.org/atomic"
+	"github.com/uber-go/atomic"
 	"go.uber.org/zap"
 )
 

@@ -137,7 +137,7 @@ func (e *LoadDataInfo) initLoadColumns(columnNames []string) error {
 	var missingColName string
 	var err error
 	tableCols := e.Table.Cols()
-
+	//a := e.Table.(table.CachedTable)
 	if len(columnNames) != len(tableCols) {
 		for _, v := range e.ColumnAssignments {
 			columnNames = append(columnNames, v.Column.Name.O)

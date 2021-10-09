@@ -17,6 +17,7 @@ package planner
 import (
 	"context"
 	"fmt"
+	"github.com/pingcap/parser/model"
 	"math"
 	"runtime/trace"
 	"strings"
@@ -497,12 +498,15 @@ func handleEvolveTasks(ctx context.Context, sctx sessionctx.Context, br *bindinf
 // useMaxTS returns true when meets following conditions:
 //  1. ctx is auto commit tagged.
 //  2. plan is point get by pk.
+//  3. table is cached or cached switching
 func useMaxTS(ctx sessionctx.Context, p plannercore.Plan) bool {
 	if !plannercore.IsAutoCommitTxn(ctx) {
 		return false
 	}
-
 	v, ok := p.(*plannercore.PointGetPlan)
+	if v.TblInfo.CachedTableStatusType != model.CachedTableDISABLE {
+		return false
+	}
 	return ok && (v.IndexInfo == nil || (v.IndexInfo.Primary && v.TblInfo.IsCommonHandle))
 }
 

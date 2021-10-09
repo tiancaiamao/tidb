@@ -15,8 +15,7 @@
 package aggfuncs_test
 
 import (
-	"testing"
-
+	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/executor/aggfuncs"
@@ -60,9 +59,7 @@ func nthValueEvaluateRowUpdateMemDeltaGens(nth int) updateMemDeltaGens {
 	}
 }
 
-func TestMemValue(t *testing.T) {
-	t.Parallel()
-
+func (s *testSuite) TestMemValue(c *C) {
 	firstMemDeltaGens := nthValueEvaluateRowUpdateMemDeltaGens(1)
 	secondMemDeltaGens := nthValueEvaluateRowUpdateMemDeltaGens(2)
 	fifthMemDeltaGens := nthValueEvaluateRowUpdateMemDeltaGens(5)
@@ -99,6 +96,6 @@ func TestMemValue(t *testing.T) {
 			aggfuncs.DefPartialResult4NthValueSize+aggfuncs.DefValue4StringSize, fifthMemDeltaGens),
 	}
 	for _, test := range tests {
-		testWindowAggMemFunc(t, test)
+		s.testWindowAggMemFunc(c, test)
 	}
 }

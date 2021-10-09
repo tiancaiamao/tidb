@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -66,7 +65,9 @@ func NewBundleFromConstraintsOptions(options *model.PlacementSettings) (*Bundle,
 	leaderConstraints := options.LeaderConstraints
 	learnerConstraints := options.LearnerConstraints
 	followerConstraints := options.FollowerConstraints
+	voterConstraints := options.VoterConstraints
 	followerCount := options.Followers
+	voterCount := options.Voters
 	learnerCount := options.Learners
 
 	CommonConstraints, err := NewConstraintsFromYaml([]byte(constraints))
@@ -87,6 +88,21 @@ func NewBundleFromConstraintsOptions(options *model.PlacementSettings) (*Bundle,
 	}
 	if len(LeaderConstraints) > 0 {
 		Rules = append(Rules, NewRule(Leader, 1, LeaderConstraints))
+	}
+
+	if voterCount > 0 {
+		VoterRules, err := NewRules(Voter, voterCount, voterConstraints)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid VoterConstraints", err)
+		}
+		for _, rule := range VoterRules {
+			for _, cnst := range CommonConstraints {
+				if err := rule.Constraints.Add(cnst); err != nil {
+					return nil, fmt.Errorf("%w: VoterConstraints conflicts with Constraints", err)
+				}
+			}
+		}
+		Rules = append(Rules, VoterRules...)
 	}
 
 	if followerCount > 0 {
@@ -128,7 +144,7 @@ func NewBundleFromSugarOptions(options *model.PlacementSettings) (*Bundle, error
 		return nil, fmt.Errorf("%w: options can not be nil", ErrInvalidPlacementOptions)
 	}
 
-	if len(options.LeaderConstraints) > 0 || len(options.LearnerConstraints) > 0 || len(options.FollowerConstraints) > 0 || len(options.Constraints) > 0 || options.Learners > 0 {
+	if len(options.LeaderConstraints) > 0 || len(options.LearnerConstraints) > 0 || len(options.FollowerConstraints) > 0 || len(options.VoterConstraints) > 0 || options.Learners > 0 || options.Voters > 0 {
 		return nil, fmt.Errorf("%w: should be PRIMARY_REGION=.. REGIONS=.. FOLLOWERS=.. SCHEDULE=.., mixed other constraints into options %s", ErrInvalidPlacementOptions, options)
 	}
 
@@ -151,45 +167,65 @@ func NewBundleFromSugarOptions(options *model.PlacementSettings) (*Bundle, error
 	}
 	schedule := options.Schedule
 
-	// regions must include the primary
-	sort.Strings(regions)
-	primaryIndex := sort.SearchStrings(regions, primaryRegion)
-	if primaryIndex >= len(regions) || regions[primaryIndex] != primaryRegion {
-		return nil, fmt.Errorf("%w: primary region must be included in regions", ErrInvalidPlacementOptions)
-	}
+	var constraints Constraints
+	var err error
 
-	var Rules []*Rule
-
+	Rules := []*Rule{}
 	switch strings.ToLower(schedule) {
 	case "", "even":
-		primaryCount := uint64(math.Ceil(float64(followers+1) / float64(len(regions))))
-		Rules = append(Rules, NewRule(Voter, primaryCount, NewConstraintsDirect(NewConstraintDirect("region", In, primaryRegion))))
-
-		if len(regions) > 1 {
-			// delete primary from regions
-			regions = regions[:primaryIndex+copy(regions[primaryIndex:], regions[primaryIndex+1:])]
-			Rules = append(Rules, NewRule(Follower, followers+1-primaryCount, NewConstraintsDirect(NewConstraintDirect("region", In, regions...))))
+		constraints, err = NewConstraints([]string{fmt.Sprintf("+region=%s", primaryRegion)})
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid PrimaryRegion '%s'", err, primaryRegion)
 		}
+		Rules = append(Rules, NewRule(Leader, 1, constraints))
 	case "majority_in_primary":
-		// calculate how many replicas need to be in the primary region for quorum
-		primaryCount := uint64(math.Ceil(float64(followers+1)/2 + 1))
-		Rules = append(Rules, NewRule(Voter, primaryCount, NewConstraintsDirect(NewConstraintDirect("region", In, primaryRegion))))
-
-		if len(regions) > 1 {
-			// delete primary from regions
-			regions = regions[:primaryIndex+copy(regions[primaryIndex:], regions[primaryIndex+1:])]
-			Rules = append(Rules, NewRule(Follower, followers+1-primaryCount, NewConstraintsDirect(NewConstraintDirect("region", In, regions...))))
+		// We already have the leader, so we need to calculate how many additional followers
+		// need to be in the primary region for quorum
+		followersInPrimary := uint64(math.Ceil(float64(followers) / 2))
+		constraints, err = NewConstraints([]string{fmt.Sprintf("+region=%s", primaryRegion)})
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid PrimaryRegion, '%s'", err, primaryRegion)
 		}
+		Rules = append(Rules, NewRule(Leader, 1, constraints))
+		Rules = append(Rules, NewRule(Follower, followersInPrimary, constraints))
+		// even split the remaining followers
+		followers = followers - followersInPrimary
 	default:
 		return nil, fmt.Errorf("%w: unsupported schedule %s", ErrInvalidPlacementOptions, schedule)
+	}
+
+	if uint64(len(regions)) > followers {
+		return nil, fmt.Errorf("%w: remain %d region to schedule, only %d follower left", ErrInvalidPlacementOptions, uint64(len(regions)), followers)
+	}
+
+	if len(regions) == 0 {
+		constraints, err := NewConstraints(nil)
+		if err != nil {
+			return nil, err
+		}
+		Rules = append(Rules, NewRule(Follower, followers, constraints))
+	} else {
+		count := followers / uint64(len(regions))
+		rem := followers - count*uint64(len(regions))
+		for _, region := range regions {
+			constraints, err = NewConstraints([]string{fmt.Sprintf("+region=%s", region)})
+			if err != nil {
+				return nil, fmt.Errorf("%w: invalid region of 'Regions', '%s'", err, region)
+			}
+			replica := count
+			if rem > 0 {
+				replica += 1
+				rem--
+			}
+			Rules = append(Rules, NewRule(Follower, replica, constraints))
+		}
 	}
 
 	return &Bundle{Rules: Rules}, nil
 }
 
-// Non-Exported functionality function, do not use it directly but NewBundleFromOptions
-// here is for only directly used in the test.
-func newBundleFromOptions(options *model.PlacementSettings) (bundle *Bundle, err error) {
+// NewBundleFromOptions will transform options into the bundle.
+func NewBundleFromOptions(options *model.PlacementSettings) (*Bundle, error) {
 	var isSyntaxSugar bool
 
 	if options == nil {
@@ -201,27 +237,9 @@ func newBundleFromOptions(options *model.PlacementSettings) (bundle *Bundle, err
 	}
 
 	if isSyntaxSugar {
-		bundle, err = NewBundleFromSugarOptions(options)
-	} else {
-		bundle, err = NewBundleFromConstraintsOptions(options)
+		return NewBundleFromSugarOptions(options)
 	}
-	return bundle, err
-}
-
-// NewBundleFromOptions will transform options into the bundle.
-func NewBundleFromOptions(options *model.PlacementSettings) (bundle *Bundle, err error) {
-	bundle, err = newBundleFromOptions(options)
-	if err != nil {
-		return nil, err
-	}
-	if bundle == nil {
-		return nil, nil
-	}
-	err = bundle.Tidy()
-	if err != nil {
-		return nil, err
-	}
-	return bundle, err
+	return NewBundleFromConstraintsOptions(options)
 }
 
 // ApplyPlacementSpec will apply actions defined in PlacementSpec to the bundle.
@@ -345,57 +363,15 @@ func (b *Bundle) Tidy() error {
 }
 
 // Reset resets the bundle ID and keyrange of all rules.
-func (b *Bundle) Reset(ruleIndex int, newIDs []int64) *Bundle {
-	// eliminate the redundant rules.
-	var basicRules []*Rule
-	if len(b.Rules) != 0 {
-		// Make priority for rules with RuleIndexTable cause of duplication rules existence with RuleIndexPartition.
-		// If RuleIndexTable doesn't exist, bundle itself is a independent series of rules for a partition.
-		for _, rule := range b.Rules {
-			if rule.Index == RuleIndexTable {
-				basicRules = append(basicRules, rule)
-			}
-		}
-		if len(basicRules) == 0 {
-			basicRules = b.Rules
-		}
+func (b *Bundle) Reset(newID int64) *Bundle {
+	b.ID = GroupID(newID)
+	startKey := hex.EncodeToString(codec.EncodeBytes(nil, tablecodec.GenTableRecordPrefix(newID)))
+	endKey := hex.EncodeToString(codec.EncodeBytes(nil, tablecodec.GenTableRecordPrefix(newID+1)))
+	for _, rule := range b.Rules {
+		rule.GroupID = b.ID
+		rule.StartKeyHex = startKey
+		rule.EndKeyHex = endKey
 	}
-
-	// extend and reset basic rules for all new ids, the first id should be the group id.
-	b.ID = GroupID(newIDs[0])
-	b.Index = ruleIndex
-	b.Override = true
-	newRules := make([]*Rule, 0, len(basicRules)*len(newIDs))
-	for i, newID := range newIDs {
-		// rule.id should be distinguished with each other, otherwise it will be de-duplicated in pd http api.
-		var ruleID string
-		if ruleIndex == RuleIndexPartition {
-			ruleID = "partition_rule_" + strconv.FormatInt(newID, 10)
-		} else {
-			if i == 0 {
-				ruleID = "table_rule_" + strconv.FormatInt(newID, 10)
-			} else {
-				ruleID = "partition_rule_" + strconv.FormatInt(newID, 10)
-			}
-		}
-		// Involve all the table level objects.
-		startKey := hex.EncodeToString(codec.EncodeBytes(nil, tablecodec.GenTablePrefix(newID)))
-		endKey := hex.EncodeToString(codec.EncodeBytes(nil, tablecodec.GenTablePrefix(newID+1)))
-		for _, rule := range basicRules {
-			clone := rule.Clone()
-			clone.ID = ruleID
-			clone.GroupID = b.ID
-			clone.StartKeyHex = startKey
-			clone.EndKeyHex = endKey
-			if i == 0 {
-				clone.Index = RuleIndexTable
-			} else {
-				clone.Index = RuleIndexPartition
-			}
-			newRules = append(newRules, clone)
-		}
-	}
-	b.Rules = newRules
 	return b
 }
 

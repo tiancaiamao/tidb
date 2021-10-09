@@ -831,7 +831,7 @@ func tryWhereIn2BatchPointGet(ctx sessionctx.Context, selStmt *ast.SelectStmt) *
 // To use the PointGetPlan the following rules must be satisfied:
 // 1. For the limit clause, the count should at least 1 and the offset is 0.
 // 2. It must be a single table select.
-// 3. All the columns must be public and not generated.
+// 3. All the columns must be public and generated.
 // 4. The condition is an access path that the range is a unique key.
 func tryPointGetPlan(ctx sessionctx.Context, selStmt *ast.SelectStmt, check bool) *PointGetPlan {
 	if selStmt.Having != nil {
@@ -1131,6 +1131,7 @@ func getSingleTableNameAndAlias(tableRefs *ast.TableRefsClause) (tblName *ast.Ta
 	if tableRefs == nil || tableRefs.TableRefs == nil || tableRefs.TableRefs.Right != nil {
 		return nil, tblAlias
 	}
+
 	tblSrc, ok := tableRefs.TableRefs.Left.(*ast.TableSource)
 	if !ok {
 		return nil, tblAlias
@@ -1368,6 +1369,7 @@ func buildPointUpdatePlan(ctx sessionctx.Context, pointPlan PhysicalPlan, dbName
 	updatePlan.tblID2Table = map[int64]table.Table{
 		tbl.ID: t,
 	}
+	tbl.IsView()
 	if tbl.GetPartitionInfo() != nil {
 		pt := t.(table.PartitionedTable)
 		var updateTableList []*ast.TableName

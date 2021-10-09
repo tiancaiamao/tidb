@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/util/topsql/reporter/mock"
 	"github.com/pingcap/tidb/util/topsql/tracecpu"
@@ -67,9 +66,7 @@ func mockPlanBinaryDecoderFunc(plan string) (string, error) {
 func setupRemoteTopSQLReporter(maxStatementsNum, interval int, addr string) *RemoteTopSQLReporter {
 	variable.TopSQLVariable.MaxStatementCount.Store(int64(maxStatementsNum))
 	variable.TopSQLVariable.ReportIntervalSeconds.Store(int64(interval))
-	config.UpdateGlobal(func(conf *config.Config) {
-		conf.TopSQL.ReceiverAddress = addr
-	})
+	variable.TopSQLVariable.AgentAddress.Store(addr)
 
 	rc := NewGRPCReportClient(mockPlanBinaryDecoderFunc)
 	ts := NewRemoteTopSQLReporter(rc)

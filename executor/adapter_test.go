@@ -15,29 +15,24 @@
 package executor_test
 
 import (
-	"testing"
 	"time"
 
-	"github.com/pingcap/tidb/testkit"
-	"github.com/stretchr/testify/require"
+	. "github.com/pingcap/check"
+	"github.com/pingcap/tidb/util/testkit"
 )
 
-func TestQueryTime(t *testing.T) {
-	t.Parallel()
-	store, clean := testkit.CreateMockStore(t)
-	defer clean()
-
-	tk := testkit.NewTestKit(t, store)
+func (s *testSuiteP2) TestQueryTime(c *C) {
+	tk := testkit.NewTestKit(c, s.store)
 	tk.MustExec("use test")
 
-	costTime := time.Since(tk.Session().GetSessionVars().StartTime)
-	require.Less(t, costTime, time.Second)
+	costTime := time.Since(tk.Se.GetSessionVars().StartTime)
+	c.Assert(costTime < 1*time.Second, IsTrue)
 
 	tk.MustExec("drop table if exists t")
 	tk.MustExec("create table t(a int)")
 	tk.MustExec("insert into t values(1), (1), (1), (1), (1)")
 	tk.MustExec("select * from t t1 join t t2 on t1.a = t2.a")
 
-	costTime = time.Since(tk.Session().GetSessionVars().StartTime)
-	require.Less(t, costTime, time.Second)
+	costTime = time.Since(tk.Se.GetSessionVars().StartTime)
+	c.Assert(costTime < 1*time.Second, IsTrue)
 }

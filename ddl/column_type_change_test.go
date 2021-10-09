@@ -1620,7 +1620,7 @@ func (s *testColumnTypeChangeSuite) TestChangingColOriginDefaultValue(c *C) {
 		if tbl.Meta().ID != job.TableID {
 			return
 		}
-		if (job.SchemaState == model.StateWriteOnly || job.SchemaState == model.StateWriteReorganization) && i < 3 {
+		if job.SchemaState == model.StateWriteOnly || job.SchemaState == model.StateWriteReorganization {
 			if !once {
 				once = true
 				tbl := testGetTableByName(c, tk1.Se, "test", "t")
@@ -1689,7 +1689,7 @@ func (s *testColumnTypeChangeSuite) TestChangingColOriginDefaultValueAfterAddCol
 		once     bool
 		checkErr error
 	)
-	i, stableTimes := 0, 0
+	i := 0
 	hook.OnJobRunBeforeExported = func(job *model.Job) {
 		if checkErr != nil {
 			return
@@ -1697,7 +1697,7 @@ func (s *testColumnTypeChangeSuite) TestChangingColOriginDefaultValueAfterAddCol
 		if tbl.Meta().ID != job.TableID {
 			return
 		}
-		if (job.SchemaState == model.StateWriteOnly || job.SchemaState == model.StateWriteReorganization) && stableTimes < 3 {
+		if job.SchemaState == model.StateWriteOnly || job.SchemaState == model.StateWriteReorganization {
 			if !once {
 				once = true
 				tbl := testGetTableByName(c, tk1.Se, "test", "t")
@@ -1738,7 +1738,6 @@ func (s *testColumnTypeChangeSuite) TestChangingColOriginDefaultValueAfterAddCol
 					return
 				}
 			}
-			stableTimes++
 		}
 		i++
 	}

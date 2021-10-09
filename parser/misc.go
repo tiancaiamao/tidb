@@ -196,6 +196,7 @@ var tokenMap = map[string]int{
 	"BY":                       by,
 	"BYTE":                     byteType,
 	"CACHE":                    cache,
+	"CACHED":                   cached,
 	"CALL":                     call,
 	"CANCEL":                   cancel,
 	"CAPTURE":                  capture,

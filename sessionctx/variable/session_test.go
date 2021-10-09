@@ -33,7 +33,7 @@ import (
 
 func TestSetSystemVariable(t *testing.T) {
 	v := variable.NewSessionVars()
-	v.GlobalVarsAccessor = variable.NewMockGlobalAccessor4Tests()
+	v.GlobalVarsAccessor = variable.NewMockGlobalAccessor()
 	v.TimeZone = time.UTC
 	mtx := new(sync.Mutex)
 
@@ -58,8 +58,6 @@ func TestSetSystemVariable(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		// copy iterator variable into a new variable, see issue #27779
-		tc := tc
 		t.Run(tc.key, func(t *testing.T) {
 			t.Parallel()
 			mtx.Lock()

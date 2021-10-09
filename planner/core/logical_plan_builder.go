@@ -54,7 +54,6 @@ import (
 	driver "github.com/pingcap/tidb/types/parser_driver"
 	util2 "github.com/pingcap/tidb/util"
 	"github.com/pingcap/tidb/util/chunk"
-	"github.com/pingcap/tidb/util/collate"
 	"github.com/pingcap/tidb/util/plancodec"
 	"github.com/pingcap/tidb/util/set"
 )
@@ -987,10 +986,7 @@ func (b *PlanBuilder) buildSelection(ctx context.Context, p LogicalPlan, where a
 		for _, item := range cnfItems {
 			if con, ok := item.(*expression.Constant); ok && con.DeferredExpr == nil && con.ParamMarker == nil {
 				ret, _, err := expression.EvalBool(b.ctx, expression.CNFExprs{con}, chunk.Row{})
-				if err != nil {
-					return nil, errors.Trace(err)
-				}
-				if ret {
+				if err != nil || ret {
 					continue
 				}
 				// If there is condition which is always false, return dual plan directly.
@@ -1377,11 +1373,10 @@ func (b *PlanBuilder) buildProjection4Union(ctx context.Context, u *LogicalUnion
 			childTp := u.children[j].Schema().Columns[i].RetType
 			resultTp = unionJoinFieldType(resultTp, childTp)
 		}
-		dstCharset, dstCollation, coercibility, err := expression.CheckAndDeriveCollationFromExprsWithCoer(b.ctx, "UNION", resultTp.EvalType(), tmpExprs...)
-		if err != nil || coercibility == expression.CoercibilityNone {
-			return collate.ErrIllegalMixCollation.GenWithStackByArgs("UNION")
+		if err := expression.CheckIllegalMixCollation("UNION", tmpExprs, types.ETInt); err != nil {
+			return err
 		}
-		resultTp.Charset, resultTp.Collate = dstCharset, dstCollation
+		resultTp.Charset, resultTp.Collate = expression.DeriveCollationFromExprs(b.ctx, tmpExprs...)
 		names = append(names, &types.FieldName{ColName: u.children[0].OutputNames()[i].ColName})
 		unionCols = append(unionCols, &expression.Column{
 			RetType:  resultTp,
@@ -3461,15 +3456,11 @@ func (b *PlanBuilder) buildSelect(ctx context.Context, sel *ast.SelectStmt) (p L
 			return nil, ErrCTERecursiveForbidsAggregation.FastGenByArgs(b.genCTETableNameForError())
 		}
 	}
-	noopFuncsMode := b.ctx.GetSessionVars().NoopFuncsMode
+	enableNoopFuncs := b.ctx.GetSessionVars().EnableNoopFuncs
 	if sel.SelectStmtOpts != nil {
-		if sel.SelectStmtOpts.CalcFoundRows && noopFuncsMode != variable.OnInt {
+		if sel.SelectStmtOpts.CalcFoundRows && !enableNoopFuncs {
 			err = expression.ErrFunctionsNoopImpl.GenWithStackByArgs("SQL_CALC_FOUND_ROWS")
-			if noopFuncsMode == variable.OffInt {
-				return nil, err
-			}
-			// NoopFuncsMode is Warn, append an error
-			b.ctx.GetSessionVars().StmtCtx.AppendWarning(err)
+			return nil, err
 		}
 		origin := b.inStraightJoin
 		b.inStraightJoin = sel.SelectStmtOpts.StraightJoin
@@ -3584,13 +3575,9 @@ func (b *PlanBuilder) buildSelect(ctx context.Context, sel *ast.SelectStmt) (p L
 		}
 	}
 	if sel.LockInfo != nil && sel.LockInfo.LockType != ast.SelectLockNone {
-		if sel.LockInfo.LockType == ast.SelectLockForShare && noopFuncsMode != variable.OnInt {
+		if sel.LockInfo.LockType == ast.SelectLockForShare && !enableNoopFuncs {
 			err = expression.ErrFunctionsNoopImpl.GenWithStackByArgs("LOCK IN SHARE MODE")
-			if noopFuncsMode == variable.OffInt {
-				return nil, err
-			}
-			// NoopFuncsMode is Warn, append an error
-			b.ctx.GetSessionVars().StmtCtx.AppendWarning(err)
+			return nil, err
 		}
 		p, err = b.buildSelectLock(p, sel.LockInfo)
 		if err != nil {
@@ -4136,6 +4123,22 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
 		us.SetChildren(ds)
 		result = us
 	}
+	if tableInfo.CachedTableStatusType == model.CachedTableENABLE {
+		cachedTable := tbl.(table.CachedTable)
+		txn, err := b.ctx.Txn(true)
+		if err != nil {
+			return nil, err
+		}
+		cond, err := cachedTable.ReadCondition(b.ctx, txn.StartTS())
+		if err != nil {
+			return nil, err
+		}
+		if cond{
+			us := LogicalUnionScan{handleCols: handleCols}.Init(b.ctx, b.getSelectOffset())
+			us.SetChildren(ds)
+			result = us
+		}
+	}
 	if sessionVars.StmtCtx.TblInfo2UnionScan == nil {
 		sessionVars.StmtCtx.TblInfo2UnionScan = make(map[*model.TableInfo]bool)
 	}
@@ -4247,8 +4250,6 @@ func (b *PlanBuilder) buildMemTable(_ context.Context, dbName model.CIStr, table
 			p.Extractor = &ClusterTableExtractor{}
 		case infoschema.TableClusterLog:
 			p.Extractor = &ClusterLogTableExtractor{}
-		case infoschema.TableTiDBHotRegionsHistory:
-			p.Extractor = &HotRegionsHistoryTableExtractor{}
 		case infoschema.TableInspectionResult:
 			p.Extractor = &InspectionResultTableExtractor{}
 			p.QueryTimeRange = b.timeRangeForSummaryTable()
@@ -4266,8 +4267,6 @@ func (b *PlanBuilder) buildMemTable(_ context.Context, dbName model.CIStr, table
 			p.Extractor = &TableStorageStatsExtractor{}
 		case infoschema.TableTiFlashTables, infoschema.TableTiFlashSegments:
 			p.Extractor = &TiFlashSystemTableExtractor{}
-		case infoschema.TableStatementsSummary, infoschema.TableStatementsSummaryHistory:
-			p.Extractor = &StatementsSummaryExtractor{}
 		}
 	}
 	return p, nil

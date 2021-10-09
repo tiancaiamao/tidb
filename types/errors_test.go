@@ -15,15 +15,16 @@
 package types
 
 import (
-	"testing"
-
+	. "github.com/pingcap/check"
+	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/parser/terror"
-	"github.com/stretchr/testify/require"
 )
 
-func TestError(t *testing.T) {
-	t.Parallel()
+type testErrorSuite struct{}
 
+var _ = Suite(testErrorSuite{})
+
+func (s testErrorSuite) TestError(c *C) {
 	kvErrs := []*terror.Error{
 		ErrInvalidDefault,
 		ErrDataTooLong,
@@ -49,9 +50,8 @@ func TestError(t *testing.T) {
 		ErrInvalidWeekModeFormat,
 		ErrWrongValue,
 	}
-
 	for _, err := range kvErrs {
 		code := terror.ToSQLError(err).Code
-		require.Equalf(t, code, uint16(err.Code()), "err: %v", err)
+		c.Assert(code != mysql.ErrUnknown && code == uint16(err.Code()), IsTrue, Commentf("err: %v", err))
 	}
 }

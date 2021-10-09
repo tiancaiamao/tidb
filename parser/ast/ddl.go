@@ -2463,6 +2463,8 @@ const (
 	AlterTableAddStatistics
 	AlterTableDropStatistics
 	AlterTableAttributes
+	AlterTableEnableCached
+	AlterTableDisableCached
 )
 
 // LockType is the type for AlterTableSpec.
@@ -2530,13 +2532,12 @@ type AlterTableSpec struct {
 
 	// only supported by MariaDB 10.0.2+ (ADD COLUMN, ADD PARTITION)
 	// see https://mariadb.com/kb/en/library/alter-table/
-	IfNotExists bool
-
+	IfNotExists     bool
 	NoWriteToBinlog bool
 	OnAllPartitions bool
-
 	Tp              AlterTableType
 	Name            string
+	CachedStatus    model.CachedTableStatusType
 	IndexName       model.CIStr
 	Constraint      *Constraint
 	Options         []*TableOption
@@ -2590,6 +2591,14 @@ func (n *AlterOrderItem) Restore(ctx *format.RestoreCtx) error {
 
 // Restore implements Node interface.
 func (n *AlterTableSpec) Restore(ctx *format.RestoreCtx) error {
+	switch n.CachedStatus {
+	case model.CachedTableDISABLE:
+		ctx.WriteKeyWord("Cached disabled")
+	case model.CachedTableSWITCHING:
+		ctx.WriteKeyWord("Cached enabled")
+	default:
+		ctx.WriteKeyWord("Cached enabled")
+	}
 	switch n.Tp {
 	case AlterTableSetTiFlashReplica:
 		ctx.WriteKeyWord("SET TIFLASH REPLICA ")
@@ -3094,7 +3103,10 @@ func (n *AlterTableSpec) Restore(ctx *format.RestoreCtx) error {
 		if err := spec.Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore AlterTableSpec.AttributesSpec")
 		}
-
+	case AlterTableEnableCached:
+		ctx.WriteKeyWord("Enable CACHED TABLE")
+	case AlterTableDisableCached:
+		ctx.WriteKeyWord("Disable CACHED TABLE")
 	default:
 		// TODO: not support
 		ctx.WritePlainf(" /* AlterTableType(%d) is not supported */ ", n.Tp)
@@ -3177,7 +3189,6 @@ func (n *AlterTableSpec) Accept(v Visitor) (Node, bool) {
 // See https://dev.mysql.com/doc/refman/5.7/en/alter-table.html
 type AlterTableStmt struct {
 	ddlNode
-
 	Table *TableName
 	Specs []*AlterTableSpec
 }
@@ -3268,7 +3279,6 @@ var (
 	ErrSystemVersioningWrongPartitions      = terror.ClassDDL.NewStd(mysql.ErrSystemVersioningWrongPartitions)
 	ErrTooManyValues                        = terror.ClassDDL.NewStd(mysql.ErrTooManyValues)
 	ErrWrongPartitionTypeExpectedSystemTime = terror.ClassDDL.NewStd(mysql.ErrWrongPartitionTypeExpectedSystemTime)
-	ErrUnknownCharacterSet                  = terror.ClassDDL.NewStd(mysql.ErrUnknownCharacterSet)
 )
 
 type SubPartitionDefinition struct {
