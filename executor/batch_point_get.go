@@ -179,6 +179,8 @@ func (e *BatchPointGetExec) Open(context.Context) error {
 		}
 		if cond {
 			batchGetter = newcachedTableBatchGetter(e.ctx, cachedTable)
+		} else {
+			cachedTable.UpdateWRLock(e.ctx)
 		}
 	}
 	e.snapshot = snapshot

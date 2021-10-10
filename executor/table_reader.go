@@ -127,19 +127,21 @@ func (i offsetOptional) valid() bool {
 func (i offsetOptional) value() int {
 	return int(i - 1)
 }
-func (e *TableReaderExecutor) ReadFromCachedTable() (bool, error) {
-	if e.table.Meta().CachedTableStatusType != model.CachedTableENABLE {
-		return false, nil
-	}
-	c := e.table.(table.CachedTable)
-	//
-	cond, err := c.ReadCondition(e.ctx, e.startTS)
-	if err != nil {
-		return false, err
-	}
-	go c.UpdateWRLock(e.ctx)
-	return cond, nil
-}
+
+//func (e *TableReaderExecutor) ReadFromCachedTable() (bool, error) {
+//	if e.table.Meta().CachedTableStatusType != model.CachedTableENABLE {
+//		return false, nil
+//	}
+//	c := e.table.(table.CachedTable)
+//	//
+//	//cond, err := c.ReadCondition(e.ctx, e.startTS)
+//	//if err != nil {
+//	//	return false, err
+//	//}
+//	// todo: 判断时间一下
+//	go c.UpdateWRLock(e.ctx)
+//	return true, nil
+//}
 
 // Open initializes necessary variables for using this executor.
 func (e *TableReaderExecutor) Open(ctx context.Context) error {
@@ -192,11 +194,12 @@ func (e *TableReaderExecutor) Open(ctx context.Context) error {
 
 	// Treat temporary table as dummy table, avoid sending distsql request to TiKV.
 	// Calculate the kv ranges here, UnionScan rely on this kv ranges.
-	cond, err := e.ReadFromCachedTable()
-	if err != nil {
-		return err
+	var cachedTable table.CachedTable
+	if e.table.Meta().CachedTableStatusType == model.CachedTableENABLE {
+		cachedTable =  e.table.(table.CachedTable)
+
 	}
-	if e.table.Meta() != nil && e.table.Meta().TempTableType != model.TempTableNone || cond {
+	if e.table.Meta() != nil && e.table.Meta().TempTableType != model.TempTableNone || cachedTable != nil && cachedTable.GetReadCondition() {
 		kvReq, err := e.buildKVReq(ctx, firstPartRanges)
 		if err != nil {
 			return err
@@ -241,10 +244,7 @@ func (e *TableReaderExecutor) Next(ctx context.Context, req *chunk.Chunk) error 
 	}
 
 	if e.table.Meta().CachedTableStatusType == model.CachedTableENABLE {
-		cond, err := e.table.(table.CachedTable).ReadCondition(e.ctx, e.startTS)
-		if err != nil {
-			return err
-		}
+		cond := e.table.(table.CachedTable).GetReadCondition()
 		if cond {
 			req.Reset()
 			return nil
@@ -293,15 +293,9 @@ func (e *TableReaderExecutor) Close() error {
 		return nil
 	}
 	if e.table.Meta() != nil && e.table.Meta().CachedTableStatusType == model.CachedTableENABLE {
-		cond, err := e.table.(table.CachedTable).ReadCondition(e.ctx, e.startTS)
-		if err != nil {
-			return err
-		}
+		cond := e.table.(table.CachedTable).GetReadCondition()
 		if cond {
-			e.table.(table.CachedTable).ApplyUpdateLockMeta(cond)
 			return nil
-		} else {
-			e.table.(table.CachedTable).ApplyUpdateLockMeta(cond)
 		}
 	}
 	var err error

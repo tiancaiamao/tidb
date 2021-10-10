@@ -333,7 +333,7 @@ func iterTxnMemBuffer(tblInfo *model.TableInfo, ctx sessionctx.Context, kvRanges
 		}
 		cachedTable = tbl.(table.CachedTable)
 		if cachedTable.IsFirstRead() {
-			err = cachedTable.LoadData(ctx)
+			err := cachedTable.LoadData(ctx)
 			if err != nil {
 				return err
 			}

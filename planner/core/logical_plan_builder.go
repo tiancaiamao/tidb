@@ -4130,13 +4130,16 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
 			return nil, err
 		}
 		cond, err := cachedTable.ReadCondition(b.ctx, txn.StartTS())
+		cachedTable.SetReadCondition(cond)
 		if err != nil {
 			return nil, err
 		}
-		if cond{
+		if cond {
 			us := LogicalUnionScan{handleCols: handleCols}.Init(b.ctx, b.getSelectOffset())
 			us.SetChildren(ds)
 			result = us
+		} else {
+			cachedTable.UpdateWRLock(b.ctx)
 		}
 	}
 	if sessionVars.StmtCtx.TblInfo2UnionScan == nil {

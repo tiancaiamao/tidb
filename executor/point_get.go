@@ -412,6 +412,8 @@ func (e *PointGetExecutor) get(ctx context.Context, key kv.Key) ([]byte, error) 
 				return nil, err
 			}
 			return cache, err
+		} else {
+			cachedTable.UpdateWRLock(e.ctx)
 		}
 	}
 	if e.txn.Valid() && !e.txn.IsReadOnly() {
@@ -459,9 +461,6 @@ func (e *PointGetExecutor) get(ctx context.Context, key kv.Key) ([]byte, error) 
 	return e.snapshot.Get(ctx, key)
 }
 
-func con2Table(table_ table.Table) table.CachedTable {
-	return table_.(table.CachedTable)
-}
 
 func (e *PointGetExecutor) verifyTxnScope() error {
 	if e.isStaleness {
