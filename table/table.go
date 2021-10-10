@@ -259,6 +259,10 @@ type CachedTable interface {
 	LoadLockMetaInfo(txn kv.Transaction) (*meta.CachedTableLockMetaInfo, error)
 	ReadCondition(ctx sessionctx.Context, ts uint64) (bool, error)
 	UpdateWRLock(ctx sessionctx.Context)
-	SetLockMetaInfo(lockInfo *meta.CachedTableLockMetaInfo)
+	//SetLockMetaInfo(lockInfo *meta.CachedTableLockMetaInfo)
 	ApplyUpdateLockMeta(flag bool)
+	SetReadCondition(cond bool)
+	GetReadCondition() bool
+	SetWriteCondition(cond bool)
+	GetWriteCondition() bool
 }
