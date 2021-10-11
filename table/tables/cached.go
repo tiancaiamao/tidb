@@ -2,7 +2,6 @@ package tables
 
 import (
 	"context"
-	"fmt"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta"
@@ -372,7 +371,6 @@ func NewCachedTable(tbl *TableCommon) (table.Table, error) {
 	return &cachedTable{TableCommon: *tbl, applyCh: make(chan applyMsg, 8), msg: applyMsg{op: NONE}}, nil
 }
 func (c *cachedTable) LoadData(ctx sessionctx.Context) error {
-	fmt.Println("这为什么进不来loaddata")
 	prefix := tablecodec.GenTablePrefix(c.tableID)
 	txn, err := ctx.Txn(true)
 	if err != nil {

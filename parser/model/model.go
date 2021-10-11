@@ -337,10 +337,31 @@ type TableInfo struct {
 	// It's true when the engine of the table is TiFlash only.
 	IsColumnar bool `json:"is_columnar"`
 
-	TempTableType `json:"temp_table_type"`
+	TempTableType         `json:"temp_table_type"`
+	CachedTableStatusType `json:"cached_table_status"`
+	PlacementPolicyRef    *PolicyRefInfo     `json:"policy_ref_info"`
+	DirectPlacementOpts   *PlacementSettings `json:"placement_settings"`
+}
+type CachedTableStatusType int
 
-	PlacementPolicyRef  *PolicyRefInfo     `json:"policy_ref_info"`
-	DirectPlacementOpts *PlacementSettings `json:"placement_settings"`
+const (
+	CachedTableDISABLE CachedTableStatusType = iota + 1
+	CachedTableENABLE
+	CachedTableSWITCHING
+)
+
+// String implements Stringer interface.
+func (t CachedTableStatusType) String() string {
+	switch t {
+	case CachedTableDISABLE:
+		return "CachedTableDISABLE"
+	case CachedTableENABLE:
+		return "CachedTableENABLE"
+	case CachedTableSWITCHING:
+		return "CachedTableSWITCHING"
+	default:
+		return ""
+	}
 }
 
 type TempTableType byte

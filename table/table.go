@@ -266,3 +266,4 @@ type CachedTable interface {
 	SetWriteCondition(cond bool)
 	GetWriteCondition() bool
 }
+
