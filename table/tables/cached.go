@@ -1,6 +1,7 @@
 package tables
 
 import (
+	"fmt"
 	"context"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/kv"
@@ -290,6 +291,7 @@ func (c *cachedTable) WriteCondition(ctx sessionctx.Context, ts uint64) (bool, e
 		if err != nil {
 			return false, err
 		}
+		fmt.Println("local meta is nil, read from remote", info)
 	}
 	msg := applyMsg{op: ExpiredWLOCKINWRITE, ts: ts, txn: txn}
 	toTS := oracle.GoTimeToTS(oracle.GetTimeFromTS(ts).Add(3 * time.Second))
@@ -297,7 +299,7 @@ func (c *cachedTable) WriteCondition(ctx sessionctx.Context, ts uint64) (bool, e
 	switch info.Lock {
 	case meta.CachedTableLockREAD:
 		// lockintend 不让读锁续约 -》TODO：读续约
-		readTs := info.Lease
+		lockLease := info.Lease
 		info.Lock = meta.CachedTableLockINTENT
 		info.Lease = toTS
 		err := c.UpdateLockMetaInfo(nil, ctx, info)
@@ -306,22 +308,27 @@ func (c *cachedTable) WriteCondition(ctx sessionctx.Context, ts uint64) (bool, e
 		}
 		// info ->状态 lock INTENT, info.lease ts + 3 //
 		// read.lease > ts
-		if readTs > ts {
+		if lockLease > ts {
 			// should wait read lease expire
 			//  物理时间来sleep多久
-			time.Sleep(time.Duration(oracle.ExtractPhysical(readTs-ts)) )
-
+			t1 := oracle.GetTimeFromTS(lockLease)
+			t2 := oracle.GetTimeFromTS(ts)
+			d := t1.Sub(t2)
+			fmt.Println("lease =", t1, "now = ", t2, "sleep = ", d)
+			time.Sleep(d)
 		}
 
-		info.Lock = meta.CachedTableLockWRITE
-		info.Lease = newTs
-		err = c.UpdateLockMetaInfo(nil, ctx, info)
-		if err != nil {
-			return false, err
-		}
 		// 写锁  read.lease + 3
 		// 远程写 lock intent lease
-		//
+		tmp := *info
+		tmp.Lock = meta.CachedTableLockWRITE
+		tmp.Lease = newTs
+		err = c.UpdateLockMetaInfo(nil, ctx, &tmp)
+		if err != nil {
+			fmt.Println("[ERROR]  update lock meta info fail??")
+			return false, err
+		}
+		
 		return true, nil
 	case meta.CachedTableLockNONE:
 		// 在事物里写锁
@@ -338,8 +345,10 @@ func (c *cachedTable) WriteCondition(ctx sessionctx.Context, ts uint64) (bool, e
 	case meta.CachedTableLockWRITE:
 		//  txn
 		if info.Lease > ts {
+			fmt.Println("hold write lock, write directly")
 			return true, nil // 可以的
 		} else {
+			fmt.Println("write lock but lease is gone ...", info.Lease, ts)
 			err := c.updateForWrite(msg.txn, msg.ts)
 			if err != nil {
 				return false, err
