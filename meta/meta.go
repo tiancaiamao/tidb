@@ -346,7 +346,7 @@ func (m *Meta) CreatePolicy(policy *model.PolicyInfo) error {
 	return m.txn.HSet(mPolicies, policyKey, attachMagicByte(data))
 }
 // SetCachedTableLockInfo sets cached table lock info when table is cached table
-func (m *Meta) SetCachedTableLockInfo(tableID int64, info *CachedTableLockMetaInfo) error {
+func (m *Meta) SetCachedTableLockInfo(tableID int64, info *StateRemoteHandle) error {
 	data, err := json.Marshal(info)
 	if err != nil {
 		return err
@@ -355,8 +355,8 @@ func (m *Meta) SetCachedTableLockInfo(tableID int64, info *CachedTableLockMetaIn
 }
 
 // GetCachedTableLockInfo gets cached table lock info when table is cached table
-func (m *Meta) GetCachedTableLockInfo(tableID int64) (*CachedTableLockMetaInfo, error) {
-	cachedTableLockInfo := &CachedTableLockMetaInfo{}
+func (m *Meta) GetCachedTableLockInfo(tableID int64) (*StateRemoteHandle, error) {
+	cachedTableLockInfo := &StateRemoteHandle{}
 	key := m.cachedTableLockInfoKey(tableID)
 
 	value, err := m.txn.Get(key)

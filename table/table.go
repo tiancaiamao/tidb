@@ -255,7 +255,7 @@ type CachedTable interface {
 	Table
 	GetMemCached() kv.MemBuffer
 	IsFirstRead() bool
-	LoadData ( ctx sessionctx.Context) error
+	LoadData (ctx sessionctx.Context) error
 	// LoadLockMetaInfo(txn kv.Transaction) (*meta.CachedTableLockMetaInfo, error)
 
 	// Local State
@@ -263,15 +263,9 @@ type CachedTable interface {
 	IsLocalStale(ts uint64) bool
 
 	// Remote State
-	SyncState() error
-	LockForRead(ts uint64) error
-
-	UpdateWRLock(ctx sessionctx.Context)
-	//SetLockMetaInfo(lockInfo *meta.CachedTableLockMetaInfo)
-	ApplyUpdateLockMeta(flag bool)
+	SyncState(store kv.Storage) error
+	LockForRead(ctx sessionctx.Context, ts uint64) error
 	SetReadCondition(cond bool)
 	GetReadCondition() bool
-	SetWriteCondition(cond bool)
-	GetWriteCondition() bool
 }
 

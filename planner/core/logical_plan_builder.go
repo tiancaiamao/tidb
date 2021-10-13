@@ -4129,7 +4129,9 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
 		if err != nil {
 			return nil, err
 		}
-		if cachedTable.CanReadFromCache(txn.StartTS()) {
+		cond := cachedTable.CanReadFromCache(txn.StartTS())
+		cachedTable.SetReadCondition(cond)
+		if  cond {
 			us := LogicalUnionScan{handleCols: handleCols}.Init(b.ctx, b.getSelectOffset())
 			us.SetChildren(ds)
 			result = us
@@ -4140,7 +4142,7 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
 			// if cachedTable.IsLocalStale(txn.StartTS()) {
 			// 	go cachedTable.SyncState()
 			// } else {
-				go cachedTable.LockForRead(txn.StartTS())
+				go cachedTable.LockForRead(b.ctx,txn.StartTS())
 			// }
 		}
 	}

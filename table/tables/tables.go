@@ -103,7 +103,6 @@ func TableFromMeta(allocs autoid.Allocators, tblInfo *model.TableInfo) (table.Ta
 	if tblInfo.State == model.StateNone {
 		return nil, table.ErrTableStateCantNone.GenWithStackByArgs(tblInfo.Name)
 	}
-
 	colsLen := len(tblInfo.Columns)
 	columns := make([]*table.Column, 0, colsLen)
 	for i, colInfo := range tblInfo.Columns {

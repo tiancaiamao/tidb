@@ -20,7 +20,6 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
-	"github.com/pingcap/tidb/meta"
 	"math"
 	"math/rand"
 	"net"
@@ -675,8 +674,6 @@ type SessionVars struct {
 	// Table.alloc.
 	IDAllocator autoid.Allocator
 
-	// CachedTableLockMetaInfo
-	CachedTableLockMetaInfo meta.CachedTableLockMetaInfo
 	// OptimizerSelectivityLevel defines the level of the selectivity estimation in plan.
 	OptimizerSelectivityLevel int
 

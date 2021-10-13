@@ -433,7 +433,6 @@ func (b *Builder) applyCreateTable(m *meta.Meta, dbInfo *model.DBInfo, tableID i
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-
 	tableNames := b.is.schemaMap[dbInfo.Name.L]
 	tableNames.tables[tblInfo.Name.L] = tbl
 	bucketIdx := tableBucketIdx(tableID)
@@ -662,6 +661,10 @@ func (b *Builder) applyEnableCachedTable(m *meta.Meta, dbInfo *model.DBInfo, dif
 		return nil, errors.Trace(err)
 	}
 	cachedTable := tbl.(table.CachedTable)
+	err = m.SetCachedTableLockInfo(tblInfo.ID, &meta.StateRemoteHandle{LockType: meta.CachedTableLockNONE})
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 	tableNames := b.is.schemaMap[dbInfo.Name.L]
 	tableNames.tables[tblInfo.Name.L] = cachedTable
 	bucketIdx := tableBucketIdx(diff.TableID)
