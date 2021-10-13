@@ -1,8 +1,8 @@
 package tables
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta"
@@ -216,8 +216,10 @@ func (c *cachedTable) ReadCondition(ctx sessionctx.Context, ts uint64) (bool, er
 	msg := applyMsg{op: NONE, ts: ts, txn: nil}
 	switch info.Lock {
 	case meta.CachedTableLockREAD:
+		go func() {}()
 		if info.Lease > ts {
-			if info.Lease > oracle.GoTimeToTS(oracle.GetTimeFromTS(ts).Add(1*time.Second+500*time.Millisecond)) {
+			// 怎么来表示这个读的任期续约。。。这样肯定不对
+			if <-time. {
 				msg.op = RENEWREADLOCK
 				msg.ts = info.Lease
 				if txn == nil {
@@ -328,7 +330,7 @@ func (c *cachedTable) WriteCondition(ctx sessionctx.Context, ts uint64) (bool, e
 			fmt.Println("[ERROR]  update lock meta info fail??")
 			return false, err
 		}
-		
+
 		return true, nil
 	case meta.CachedTableLockNONE:
 		// 在事物里写锁

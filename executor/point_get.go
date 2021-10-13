@@ -389,7 +389,7 @@ func (e *PointGetExecutor) get(ctx context.Context, key kv.Key) ([]byte, error) 
 	)
 	e.ctx.GetSessionVars()
 	var cachedTable table.CachedTable
-	if e.tblInfo.CachedTableStatusType == model.CachedTableENABLE {
+	if e.tblInfo.CachedTableStatusType == model.CachedTableENABLE .{
 		tbl, ok := domain.GetDomain(e.ctx).InfoSchema().TableByID(e.tblInfo.ID)
 		if !ok {
 			return nil, err
