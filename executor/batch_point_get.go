@@ -17,7 +17,7 @@ package executor
 import (
 	"context"
 	"fmt"
-	"github.com/pingcap/tidb/domain"
+	// "github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/table"
 	"sort"
 	"sync/atomic"
@@ -167,22 +167,22 @@ func (e *BatchPointGetExec) Open(context.Context) error {
 			batchGetter = driver.NewBufferBatchGetter(txn.GetMemBuffer(), nil, snapshot)
 		}
 	}
-	if e.tblInfo.CachedTableStatusType == model.CachedTableENABLE {
-		tbl, ok := domain.GetDomain(e.ctx).InfoSchema().TableByID(e.tblInfo.ID)
-		if !ok {
-			return errors.New("Cached Table is not exist")
-		}
-		cachedTable := tbl.(table.CachedTable)
-		cond, err := cachedTable.ReadCondition(e.ctx, e.startTS)
-		if err != nil {
-			return err
-		}
-		if cond {
-			batchGetter = newcachedTableBatchGetter(e.ctx, cachedTable)
-		} else {
-			cachedTable.UpdateWRLock(e.ctx)
-		}
-	}
+	// if e.tblInfo.CachedTableStatusType == model.CachedTableENABLE {
+	// 	tbl, ok := domain.GetDomain(e.ctx).InfoSchema().TableByID(e.tblInfo.ID)
+	// 	if !ok {
+	// 		return errors.New("Cached Table is not exist")
+	// 	}
+	// 	cachedTable := tbl.(table.CachedTable)
+	// 	cond, err := cachedTable.ReadCondition(e.ctx, e.startTS)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	if cond {
+	// 		batchGetter = newcachedTableBatchGetter(e.ctx, cachedTable)
+	// 	} else {
+	// 		cachedTable.UpdateWRLock(e.ctx)
+	// 	}
+	// }
 	e.snapshot = snapshot
 	e.batchGetter = batchGetter
 	return nil

@@ -4129,17 +4129,19 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
 		if err != nil {
 			return nil, err
 		}
-		cond, err := cachedTable.ReadCondition(b.ctx, txn.StartTS())
-		cachedTable.SetReadCondition(cond)
-		if err != nil {
-			return nil, err
-		}
-		if cond {
+		if cachedTable.CanReadFromCache(txn.StartTS()) {
 			us := LogicalUnionScan{handleCols: handleCols}.Init(b.ctx, b.getSelectOffset())
 			us.SetChildren(ds)
 			result = us
+
+			// TODO: Update lease when necessary?
+
 		} else {
-			cachedTable.UpdateWRLock(b.ctx)
+			// if cachedTable.IsLocalStale(txn.StartTS()) {
+			// 	go cachedTable.SyncState()
+			// } else {
+				go cachedTable.LockForRead(txn.StartTS())
+			// }
 		}
 	}
 	if sessionVars.StmtCtx.TblInfo2UnionScan == nil {

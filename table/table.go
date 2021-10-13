@@ -24,7 +24,7 @@ import (
 	"github.com/pingcap/parser/model"
 	mysql "github.com/pingcap/tidb/errno"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/meta"
+	// "github.com/pingcap/tidb/meta"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/types"
@@ -256,8 +256,16 @@ type CachedTable interface {
 	GetMemCached() kv.MemBuffer
 	IsFirstRead() bool
 	LoadData ( ctx sessionctx.Context) error
-	LoadLockMetaInfo(txn kv.Transaction) (*meta.CachedTableLockMetaInfo, error)
-	ReadCondition(ctx sessionctx.Context, ts uint64) (bool, error)
+	// LoadLockMetaInfo(txn kv.Transaction) (*meta.CachedTableLockMetaInfo, error)
+
+	// Local State
+	CanReadFromCache(ts uint64) bool
+	IsLocalStale(ts uint64) bool
+
+	// Remote State
+	SyncState() error
+	LockForRead(ts uint64) error
+
 	UpdateWRLock(ctx sessionctx.Context)
 	//SetLockMetaInfo(lockInfo *meta.CachedTableLockMetaInfo)
 	ApplyUpdateLockMeta(flag bool)
