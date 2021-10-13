@@ -25,7 +25,7 @@ import (
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/ddl/placement"
 	"github.com/pingcap/tidb/distsql"
-	"github.com/pingcap/tidb/domain"
+	// "github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/infoschema"
 	"github.com/pingcap/tidb/kv"
@@ -388,34 +388,34 @@ func (e *PointGetExecutor) get(ctx context.Context, key kv.Key) ([]byte, error) 
 		err error
 	)
 	e.ctx.GetSessionVars()
-	var cachedTable table.CachedTable
-	if e.tblInfo.CachedTableStatusType == model.CachedTableENABLE {
-		tbl, ok := domain.GetDomain(e.ctx).InfoSchema().TableByID(e.tblInfo.ID)
-		if !ok {
-			return nil, err
-		}
-		cachedTable = tbl.(table.CachedTable)
+	// var cachedTable table.CachedTable
+	// if e.tblInfo.CachedTableStatusType == model.CachedTableENABLE {
+	// 	tbl, ok := domain.GetDomain(e.ctx).InfoSchema().TableByID(e.tblInfo.ID)
+	// 	if !ok {
+	// 		return nil, err
+	// 	}
+	// 	cachedTable = tbl.(table.CachedTable)
 
-		if cachedTable.IsFirstRead() {
-			err = cachedTable.LoadData(e.ctx)
-			if err != nil {
-				return nil, err
-			}
-		}
-		cond, err := cachedTable.ReadCondition(e.ctx, e.startTS)
-		if err != nil {
-			return nil, err
-		}
-		if cond {
-			cache, err := cachedTable.GetMemCached().Get(ctx, key)
-			if err != nil {
-				return nil, err
-			}
-			return cache, err
-		} else {
-			cachedTable.UpdateWRLock(e.ctx)
-		}
-	}
+	// 	if cachedTable.IsFirstRead() {
+	// 		err = cachedTable.LoadData(e.ctx)
+	// 		if err != nil {
+	// 			return nil, err
+	// 		}
+	// 	}
+	// 	cond, err := cachedTable.ReadCondition(e.ctx, e.startTS)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	if cond {
+	// 		cache, err := cachedTable.GetMemCached().Get(ctx, key)
+	// 		if err != nil {
+	// 			return nil, err
+	// 		}
+	// 		return cache, err
+	// 	} else {
+	// 		cachedTable.UpdateWRLock(e.ctx)
+	// 	}
+	// }
 	if e.txn.Valid() && !e.txn.IsReadOnly() {
 		// We cannot use txn.Get directly here because the snapshot in txn and the snapshot of e.snapshot may be
 		// different for pessimistic transaction.
