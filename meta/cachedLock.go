@@ -1,6 +1,8 @@
 package meta
 
 import (
+	"fmt"
+
 	"github.com/pingcap/errors"
 )
 
@@ -20,15 +22,14 @@ type StateRemote interface {
 	WriteAndUnlock() error
 	CleanOrphanLock() error
 }
+
 type CachedTableLockMetaInfo struct {
-	TableID int64
-	Lock    CachedTableLockType
-	Lease   uint64
+	lockType    CachedTableLockType
+	lease   uint64
 }
 
-func NewCachedTableLockMetaInfo(ID int64, lock CachedTableLockType, lease uint64) *CachedTableLockMetaInfo {
+func NewCachedTableLockMetaInfo(lock CachedTableLockType, lease uint64) *CachedTableLockMetaInfo {
 	return &CachedTableLockMetaInfo{
-		TableID: ID,
 		Lock:    lock,
 		Lease:   lease,
 	}
@@ -45,6 +46,7 @@ func (h *CachedTableLockMetaInfo) LockForRead(lease uint64) error {
 }
 
 func (h *CachedTableLockMetaInfo) RenewLease(lease uint64) error {
+	fmt.Println("renew lease　没有真正把数据写回去的哦!")
 
 	if h.Lock != CachedTableLockREAD {
 		return errors.New("这种情况锁必须是读锁")

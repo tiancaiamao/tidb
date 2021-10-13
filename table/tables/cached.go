@@ -3,7 +3,6 @@ package tables
 import (
 	"context"
 	"fmt"
-	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta"
 	"github.com/pingcap/tidb/sessionctx"
@@ -45,10 +44,31 @@ type cachedTable struct {
 	//cachedTableData
 	kv.MemBuffer
 	msg                 applyMsg
-	CachedTableLockMeta *meta.CachedTableLockMetaInfo
-	applyCh             chan applyMsg
+	*stateLocal
+	stateRemote
+	// CachedTableLockMeta *meta.CachedTableLockMetaInfo
 	readCond            bool
 	writeCond           bool
+}
+
+type stateLocal struct {
+	lockType meta.CachedTableLockType
+	lease uint64
+}
+
+func (s *stateLocal) LockType() meta.CachedTableLockType {
+	return s.lockType
+}
+
+func (s *stateLocal) Lease() uint64 {
+	return s.lease
+}
+
+type stateRemote interface {
+	Load() (stateLocal, error)
+	LockForRead(now, ts uint64) error
+	PreLock(now, ts uint64) (uint64, error)
+	LockForWrite(ts uint64) error
 }
 
 func (c *cachedTable) SetWriteCondition(cond bool) {
@@ -65,303 +85,413 @@ func (c *cachedTable) SetReadCondition(cond bool) {
 func (c *cachedTable) GetReadCondition() bool {
 	return c.readCond
 }
-func (c *cachedTable) ApplyUpdateLockMeta(flag bool) {
-	if !flag || c.msg.op == RENEWREADLOCK {
-		c.applyCh <- c.msg
-	}
-}
 
-type LockMetaInfo struct {
-	meta.CachedTableLockMetaInfo
-	scanCount int
-	nextKey   kv.Key
-	err       error
-}
-
-func (c *cachedTable) UpdateWRLock(ctx sessionctx.Context) {
-	var err error
-
-	msg := c.msg
-	switch msg.op {
-	// 这个事物在更新完就会给他提交了
-	case ExpiredRLOCKINREAD, ExpiredWLOCKINREAD:
-		err = c.updateForRead(msg.txn, ctx, msg.ts)
-		if err == nil {
-			break
-		}
-	case ExpiredWLOCKINWRITE:
-		err = c.updateForWrite(msg.txn, msg.ts)
-		if err == nil {
-			break
-		}
-	case CLEANWLOCKINWRITE:
-		info := meta.NewCachedTableLockMetaInfo(c.tableID, meta.CachedTableLockNONE, msg.ts)
-		err := c.UpdateLockMetaInfo(msg.txn, ctx, info)
-		if err != nil {
-			return
-		}
-	case RENEWREADLOCK:
-		toTs := oracle.GoTimeToTS(oracle.GetTimeFromTS(msg.ts).Add(3 * time.Second))
-		info := meta.NewCachedTableLockMetaInfo(c.tableID, meta.CachedTableLockREAD, toTs)
-		err := c.UpdateLockMetaInfo(msg.txn, ctx, info)
-		if err != nil {
-			return
-		}
-	default:
-		break
-	}
-
-}
+//func (c *cachedTable) UpdateWRLock(ctx sessionctx.Context) {
+//	var err error
+//
+//	msg := c.msg
+//
+//	fmt.Println("UpdateWRLock ... msg = ", msg)
+//
+//	switch msg.op {
+//	// 这个事物在更新完就会给他提交了
+//	case ExpiredRLOCKINREAD, ExpiredWLOCKINREAD:
+//		err = c.updateForRead(msg.txn, ctx, msg.ts)
+//		if err == nil {
+//			break
+//		}
+//	case ExpiredWLOCKINWRITE:
+//		err = c.updateForWrite(msg.txn, msg.ts)
+//		if err == nil {
+//			break
+//		}
+//	case CLEANWLOCKINWRITE:
+//		info := meta.NewCachedTableLockMetaInfo(c.tableID, meta.CachedTableLockNONE, msg.ts)
+//		err := c.UpdateLockMetaInfo(msg.txn, ctx, info)
+//		if err != nil {
+//			return
+//		}
+//	case RENEWREADLOCK:
+//		toTs := oracle.GoTimeToTS(oracle.GetTimeFromTS(msg.ts).Add(3 * time.Second))
+//		info := meta.NewCachedTableLockMetaInfo(c.tableID, meta.CachedTableLockREAD, toTs)
+//		err := c.UpdateLockMetaInfo(msg.txn, ctx, info)
+//		if err != nil {
+//			return
+//		}
+//	default:
+//		break
+//	}
+//
+//}
 
 func (c *cachedTable) updateForWrite(txn kv.Transaction, ts uint64) error {
-	info := c.CachedTableLockMeta
-	toTS := oracle.GoTimeToTS(oracle.GetTimeFromTS(ts).Add(3 * time.Second))
-	if info == nil {
-		metaInfo, err := c.LoadLockMetaInfo(txn)
-		if err != nil {
-			return err
-		}
-		info = metaInfo
-	}
-	if info.Lock == meta.CachedTableLockREAD {
-		if info.Lease > ts {
-			info.Lease = toTS
-		}
-	} else if info.Lock == meta.CachedTableLockNONE {
-		err := info.LockForWrite(toTS)
-		if err != nil {
-			return err
-		}
-	} else {
-		if info.Lease < ts {
-			// 过期写锁更新它
-			err := info.LockForWrite(toTS)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	var err error
-	m := meta.NewMeta(txn)
-	err = m.SetCachedTableLockInfo(c.tableID, info)
-	if err != nil {
-		return err
-	}
-	c.CachedTableLockMeta = info
-	err = txn.Commit(context.Background())
-	if err != nil {
-		return err
-	}
+	// info := c.CachedTableLockMeta
+	// toTS := oracle.GoTimeToTS(oracle.GetTimeFromTS(ts).Add(3 * time.Second))
+	// if info == nil {
+	// 	metaInfo, err := c.LoadLockMetaInfo(txn)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	info = metaInfo
+	// }
+	// if info.Lock == meta.CachedTableLockREAD {
+	// 	if info.Lease > ts {
+	// 		info.Lease = toTS
+	// 	}
+	// } else if info.Lock == meta.CachedTableLockNONE {
+	// 	err := info.LockForWrite(toTS)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// } else {
+	// 	if info.Lease < ts {
+	// 		// 过期写锁更新它
+	// 		err := info.LockForWrite(toTS)
+	// 		if err != nil {
+	// 			return err
+	// 		}
+	// 	}
+	// }
+	// var err error
+	// m := meta.NewMeta(txn)
+	// err = m.SetCachedTableLockInfo(c.tableID, info)
+	// if err != nil {
+	// 	return err
+	// }
+	// c.CachedTableLockMeta = info
+	// err = txn.Commit(context.Background())
+	// if err != nil {
+	// 	return err
+	// }
 	return nil
 }
 
 func (c *cachedTable) updateForRead(txn kv.Transaction, ctx sessionctx.Context, ts uint64) error {
 
-	info := c.CachedTableLockMeta
-	toTS := oracle.GoTimeToTS(oracle.GetTimeFromTS(ts).Add(3 * time.Second))
-	err := c.LoadData(ctx)
-	if err != nil {
-		return err
-	}
-	// 过期了
-	if info.Lock == meta.CachedTableLockREAD {
-		err := info.RenewLease(toTS)
-		if err != nil {
-			return err
-		}
-	} else if info.Lock == meta.CachedTableLockNONE {
-		err := info.LockForRead(toTS)
-		if err != nil {
-			return err
-		}
-	} else {
-		// 写锁则不能一定能读
-		if info.Lease < ts {
-			// 过期写锁更新它
-			err := info.RenewLease(toTS)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	m := meta.NewMeta(txn)
-	err = m.SetCachedTableLockInfo(c.tableID, info)
-	if err != nil {
-		return err
-	}
-	err = txn.Commit(context.Background())
-	if err != nil {
-		return err
-	}
 
-	c.CachedTableLockMeta = info
+	// info := c.CachedTableLockMeta
+	// toTS := oracle.GoTimeToTS(oracle.GetTimeFromTS(ts).Add(3 * time.Second))
+	// err := c.LoadData(ctx)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// fmt.Println("updateForRead ... ts = ", ts, " new ts ==", toTS)
+
+	// // 过期了
+	// if info.Lock == meta.CachedTableLockREAD {
+	// 	fmt.Println("updateForRead ... 过期了")
+	// 	err := info.RenewLease(toTS)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// } else if info.Lock == meta.CachedTableLockNONE {
+	// 	err := info.LockForRead(toTS)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// } else {
+	// 	// 写锁则不能一定能读
+	// 	if info.Lease < ts {
+	// 		// 过期写锁更新它
+	// 		err := info.RenewLease(toTS)
+	// 		if err != nil {
+	// 			return err
+	// 		}
+	// 	}
+	// }
+	// m := meta.NewMeta(txn)
+	// err = m.SetCachedTableLockInfo(c.tableID, info)
+	// if err != nil {
+	// 	return err
+	// }
+	// err = txn.Commit(context.Background())
+	// if err != nil {
+	// 	return err
+	// }
+
+	// c.CachedTableLockMeta = info
 	return nil
 }
 
-func (c *cachedTable) ReadCondition(ctx sessionctx.Context, ts uint64) (bool, error) {
-	var err error
-	var txn kv.Transaction
-	// 先去看本地缓存 在获取事物
-	info := c.CachedTableLockMeta
-	if info == nil || info.Lease < ts {
-		txn, err = ctx.GetStore().Begin()
-		if err != nil {
-			return false, err
-		}
-		info, err = c.LoadLockMetaInfo(txn)
-		if err != nil {
-			return false, err
-		}
-	}
-	msg := applyMsg{op: NONE, ts: ts, txn: nil}
-	switch info.Lock {
-	case meta.CachedTableLockREAD:
-		go func() {}()
-		if info.Lease > ts {
-			// 怎么来表示这个读的任期续约。。。这样肯定不对
-			if <-time. {
-				msg.op = RENEWREADLOCK
-				msg.ts = info.Lease
-				if txn == nil {
-					txn, err = ctx.GetStore().Begin()
-					if err != nil {
-						return false, err
-					}
-				}
-				msg.txn = txn
-				c.msg = msg
-				c.UpdateWRLock(ctx)
-			}
-			return true, nil
-		} else {
-			if txn == nil {
-				txn, err = ctx.GetStore().Begin()
-				if err != nil {
-					return false, err
-				}
-			}
-			msg.txn = txn
-			msg.op = ExpiredRLOCKINREAD
-			c.msg = msg
-			return false, nil
-		}
 
-	case meta.CachedTableLockNONE:
-		if txn == nil {
-			txn, err = ctx.GetStore().Begin()
-			if err != nil {
-				return false, err
-			}
-		}
-		err = c.updateForRead(txn, ctx, msg.ts)
-		if err != nil {
-			return false, err
-		}
-		return true, nil
-	case meta.CachedTableLockWRITE, meta.CachedTableLockINTENT:
-		if info.Lease < ts {
-			// 清除写锁 + 读锁 读
-			if txn == nil {
-				txn, err = ctx.GetStore().Begin()
-				if err != nil {
-					return false, err
-				}
-			}
-			msg.op = ExpiredWLOCKINREAD
-			c.msg = msg
-			c.UpdateWRLock(ctx)
-			return true, nil
-		}
-		return false, nil
-	default:
-		log.Error("We only have three lock type")
-	}
-	return false, nil
+func (c *cachedTable) CanReadFromCache(ts uint64) bool {
+	return canReadFromCache(c.stateLocal, ts)
 }
-func (c *cachedTable) WriteCondition(ctx sessionctx.Context, ts uint64) (bool, error) {
-	var err error
-	txn, err := ctx.GetStore().Begin()
+
+func (c *cachedTable) IsLocalStale(tsNow uint64) bool {
+	return isLocalStale(c.stateLocal, tsNow)
+}
+
+func (c *cachedTable) SyncState() error {
+	s, err := c.stateRemote.Load()
 	if err != nil {
-		return false, err
+		return err
 	}
-	info := c.CachedTableLockMeta
-	// 读上来 在写 下去 要原子性
-	// ？
-	if info == nil {
-		// 在一个事物里
-		info, err = c.LoadLockMetaInfo(txn)
-		if err != nil {
-			return false, err
+	c.stateLocal = &s
+	fmt.Println("sync state here", c.stateLocal)
+	return nil
+}
+
+func isLocalStale(s *stateLocal, tsNow uint64) bool {
+	if s == nil {
+		fmt.Println("local is stale due to nil")
+		return true
+	}
+
+	lease := s.Lease()
+	if  lease <= tsNow {
+		fmt.Println("local is stale, lease = ", lease, "now = ", tsNow)
+		return true
+	}
+
+	return false
+}
+
+func canReadFromCache(s *stateLocal, ts uint64) bool {
+	if isLocalStale(s, ts) {
+		return false
+	}
+
+	switch s.LockType() {
+	case meta.CachedTableLockREAD:
+		if s.Lease() > ts {
+			return true
+		} else {
+			// go lock for read
+			return false
 		}
-		fmt.Println("local meta is nil, read from remote", info)
+	case meta.CachedTableLockNONE:
+		// go lock for read
+		return false
+	case meta.CachedTableLockWRITE, meta.CachedTableLockINTENT:
+		return false
 	}
-	msg := applyMsg{op: ExpiredWLOCKINWRITE, ts: ts, txn: txn}
-	toTS := oracle.GoTimeToTS(oracle.GetTimeFromTS(ts).Add(3 * time.Second))
-	newTs := oracle.GoTimeToTS(oracle.GetTimeFromTS(info.Lease).Add(3 * time.Second))
-	switch info.Lock {
+	panic("should never here")
+}
+
+type stateRemoteHandle struct {
+	LockInfo *meta.CachedTableLockMetaInfo
+	client tikv.Client
+}
+
+func (h *stateRemoteHandle) Load() (stateLocal ,error) {
+	h.
+	return stateLocal{
+		lockType : h.LockInfo.lockType,
+		lease : h.lease,
+	}, nil
+}
+
+func (h *stateRemoteHandle) LockForRead(now, ts uint64) error {
+
+	// In the server side:
+	switch h.lockType {
+	case meta.CachedTableLockNONE:
+		h.lockType = meta.CachedTableLockREAD
+		h.lease = ts
+	case meta.CachedTableLockREAD:
+		h.lease = ts
+	case meta.CachedTableLockWRITE, meta.CachedTableLockINTENT:
+		if now > h.lease {
+			// clear orphan lock
+			h.lockType = meta.CachedTableLockREAD
+			h.lease = ts
+		} else {
+			return fmt.Errorf("fail to lock for read, curr state = %v", h.lockType)
+		}
+	}
+	return nil
+}
+
+func (h *stateRemoteHandle) PreLock(now, ts uint64) (uint64, error) {
+	// In the server side:
+	oldLease := h.lease
+	if h.lockType == meta.CachedTableLockNONE {
+		h.lockType = meta.CachedTableLockINTENT
+		h.lease = ts
+		return oldLease, nil
+	}
+
+	if h.lockType == meta.CachedTableLockREAD {
+		h.lockType = meta.CachedTableLockINTENT
+		h.lease = ts
+		return oldLease, nil
+	}
+
+	return 0, fmt.Errorf("fail to add lock intent, curr state = %v %d %d", h.lockType, h.lease, now)
+}
+
+
+func (h *stateRemoteHandle) LockForWrite(ts uint64) error {
+	if h.lockType == meta.CachedTableLockINTENT {
+		h.lockType = meta.CachedTableLockWRITE
+		h.lease = ts
+		return nil
+	}
+
+	return fmt.Errorf("lock for write fail, lock intent is gone! %v", h.lockType)
+}
+
+func (h *cachedTable) PreLock(ts uint64) (uint64, error) {
+	ts1 := oracle.GoTimeToTS(oracle.GetTimeFromTS(ts).Add(3*time.Second))
+	// Lock remote.
+	oldLease, err := h.stateRemote.PreLock(ts, ts1)
+	if err == nil {
+		// Update local on success
+		h.stateLocal = &stateLocal{
+			lockType: meta.CachedTableLockINTENT,
+			lease: ts1,
+		}
+	}
+	return oldLease, err
+}
+
+func (c *cachedTable) LockForRead(ts uint64) error {
+	ts1 := oracle.GoTimeToTS(oracle.GetTimeFromTS(ts).Add(3*time.Second))
+
+	err :=  c.stateRemote.LockForRead(ts, ts1)
+	if err == nil {
+		// Update the local state here on success.
+		c.stateLocal = &stateLocal{
+			lockType: meta.CachedTableLockREAD,
+			lease: ts1,
+		}
+	} else {
+		fmt.Println("warn, lock for read get", err)
+	}
+	return nil
+}
+
+// func (c *cachedTable) ReadCondition(ctx sessionctx.Context, ts uint64) (bool, error) {
+// 	var err error
+// 	var txn kv.Transaction
+// 	// 先去看本地缓存 在获取事物
+// 	info := c.CachedTableLockMeta
+// 	if info == nil || info.Lease < ts {
+// 		fmt.Println("in ReadCondition ... load from remote", info, ts)
+// 		txn, err = ctx.GetStore().Begin()
+// 		if err != nil {
+// 			return false, err
+// 		}
+// 		info, err = c.LoadLockMetaInfo(txn)
+// 		if err != nil {
+// 			return false, err
+// 		}
+// 	}
+// 	msg := applyMsg{op: NONE, ts: ts, txn: nil}
+// 	switch info.Lock {
+// 	case meta.CachedTableLockREAD:
+// 		if info.Lease > ts {
+// 			if info.Lease > oracle.GoTimeToTS(oracle.GetTimeFromTS(ts).Add(1500*time.Millisecond)) {
+// 				fmt.Println("renew ... lease for read lock ...", info.Lease)
+// 				msg.op = RENEWREADLOCK
+// 				msg.ts = info.Lease
+// 				if txn == nil {
+// 					txn, err = ctx.GetStore().Begin()
+// 					if err != nil {
+// 						return false, err
+// 					}
+// 				}
+// 				msg.txn = txn
+// 				c.msg = msg
+// 				c.UpdateWRLock(ctx)
+// 			}
+// 			return true, nil
+// 		} else {
+// 			if txn == nil {
+// 				txn, err = ctx.GetStore().Begin()
+// 				if err != nil {
+// 					return false, err
+// 				}
+// 			}
+// 			msg.txn = txn
+// 			msg.op = ExpiredRLOCKINREAD
+// 			c.msg = msg
+// 			return false, nil
+// 		}
+
+// 	case meta.CachedTableLockNONE:
+// 		if txn == nil {
+// 			txn, err = ctx.GetStore().Begin()
+// 			if err != nil {
+// 				return false, err
+// 			}
+// 		}
+// 		fmt.Println("ReadCondition table lock is NONE, so add read lock before continue...")
+// 		err = c.updateForRead(txn, ctx, msg.ts)
+// 		if err != nil {
+// 			return false, err
+// 		}
+// 		return true, nil
+// 	case meta.CachedTableLockWRITE, meta.CachedTableLockINTENT:
+// 		if info.Lease < ts {
+// 			// 清除写锁 + 读锁 读
+// 			if txn == nil {
+// 				txn, err = ctx.GetStore().Begin()
+// 				if err != nil {
+// 					return false, err
+// 				}
+// 			}
+// 			msg.op = ExpiredWLOCKINREAD
+// 			c.msg = msg
+// 			c.UpdateWRLock(ctx)
+// 			return true, nil
+// 		}
+// 		return false, nil
+// 	default:
+// 		log.Error("We only have three lock type")
+// 	}
+// 	return false, nil
+// }
+
+func (c *cachedTable) LockForWrite(ts uint64) error {
+	// Make sure the local state is accurate.
+	if c.IsLocalStale(ts) {
+		err := c.SyncState()
+		if err != nil {
+			return err
+		}
+	}
+
+	switch c.stateLocal.LockType() {
 	case meta.CachedTableLockREAD:
 		// lockintend 不让读锁续约 -》TODO：读续约
-		lockLease := info.Lease
-		info.Lock = meta.CachedTableLockINTENT
-		info.Lease = toTS
-		err := c.UpdateLockMetaInfo(nil, ctx, info)
-		if err != nil {
-			return false, err
+		// 状态 lock INTENT, lease ts + 3 //
+		oldLease, err := c.PreLock(ts)
+		if err != nil{
+			return err
 		}
-		// info ->状态 lock INTENT, info.lease ts + 3 //
-		// read.lease > ts
-		if lockLease > ts {
+
+		if c.stateLocal.Lease() > ts {
 			// should wait read lease expire
 			//  物理时间来sleep多久
-			t1 := oracle.GetTimeFromTS(lockLease)
+			t1 := oracle.GetTimeFromTS(oldLease)
 			t2 := oracle.GetTimeFromTS(ts)
 			d := t1.Sub(t2)
 			fmt.Println("lease =", t1, "now = ", t2, "sleep = ", d)
 			time.Sleep(d)
 		}
-
-		// 写锁  read.lease + 3
-		// 远程写 lock intent lease
-		tmp := *info
-		tmp.Lock = meta.CachedTableLockWRITE
-		tmp.Lease = newTs
-		err = c.UpdateLockMetaInfo(nil, ctx, &tmp)
-		if err != nil {
-			fmt.Println("[ERROR]  update lock meta info fail??")
-			return false, err
+		if err  := c.stateRemote.LockForWrite(ts); err != nil {
+			return err
 		}
-
-		return true, nil
 	case meta.CachedTableLockNONE:
 		// 在事物里写锁
 		// lease 没意义
 		// if 提交冲突了 那就重新走write CONdition
-
-		err := c.updateForWrite(msg.txn, msg.ts)
-		if err != nil {
-			return false, err
+		if err := c.stateRemote.LockForWrite(ts); err != nil {
+			// TODO if ERR = retry, goto to LockForWrite() again.
+			return err
 		}
-
-		return true, nil
-
 	case meta.CachedTableLockWRITE:
-		//  txn
-		if info.Lease > ts {
+		if c.stateLocal.Lease() > ts {
 			fmt.Println("hold write lock, write directly")
-			return true, nil // 可以的
-		} else {
-			fmt.Println("write lock but lease is gone ...", info.Lease, ts)
-			err := c.updateForWrite(msg.txn, msg.ts)
-			if err != nil {
-				return false, err
-			}
-			//c.msg = msg
-			return true, nil //
+			break
 		}
-	default:
-		log.Error("We only have three lock type")
+		fmt.Println("write lock but lease is gone ...", c.stateLocal.Lease(), ts)
+		// TODO: the whole steps
 	}
-	return false, nil
+	return nil
 }
 
 func (c *cachedTable) GetMemCached() kv.MemBuffer {
@@ -374,13 +504,19 @@ func (c *cachedTable) SetMemCache(key kv.Key, value []byte) error {
 	return c.MemBuffer.Set(key, value)
 }
 func (c *cachedTable) IsFirstRead() bool {
-	return c.MemBuffer == nil
+	return isFirstRead()
 }
 
 // NewCachedTable creates a new CachedTable Instance
 func NewCachedTable(tbl *TableCommon) (table.Table, error) {
-	return &cachedTable{TableCommon: *tbl, applyCh: make(chan applyMsg, 8), msg: applyMsg{op: NONE}}, nil
+	return &cachedTable{
+		TableCommon: *tbl,
+		stateRemote: &stateRemoteHandle{
+			lockType: meta.CachedTableLockNONE,
+		},
+	}, nil
 }
+
 func (c *cachedTable) LoadData(ctx sessionctx.Context) error {
 	prefix := tablecodec.GenTablePrefix(c.tableID)
 	txn, err := ctx.Txn(true)
@@ -388,7 +524,7 @@ func (c *cachedTable) LoadData(ctx sessionctx.Context) error {
 		return err
 	}
 	if c.IsFirstRead() {
-		info := meta.NewCachedTableLockMetaInfo(c.tableID, meta.CachedTableLockNONE, txn.StartTS())
+		info :=
 		err := c.UpdateLockMetaInfo(nil, ctx, info)
 		if err != nil {
 			return err
@@ -423,15 +559,15 @@ func (c *cachedTable) LoadData(ctx sessionctx.Context) error {
 }
 
 // load lockInfo from remote and set local
-func (c *cachedTable) LoadLockMetaInfo(txn kv.Transaction) (*meta.CachedTableLockMetaInfo, error) {
-	m := meta.NewMeta(txn)
-	info, err := m.GetCachedTableLockInfo(c.tableID)
-	if err != nil {
-		return nil, err
-	}
-	c.CachedTableLockMeta = info
-	return info, nil
-}
+// func (c *cachedTable) LoadLockMetaInfo(txn kv.Transaction) (*meta.CachedTableLockMetaInfo, error) {
+// 	m := meta.NewMeta(txn)
+// 	info, err := m.GetCachedTableLockInfo(c.tableID)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	c.CachedTableLockMeta = info
+// 	return info, nil
+// }
 
 // update lockMetaInfo remote and local
 func (c *cachedTable) UpdateLockMetaInfo(txn kv.Transaction, ctx sessionctx.Context, info *meta.CachedTableLockMetaInfo) error {
@@ -451,75 +587,57 @@ func (c *cachedTable) UpdateLockMetaInfo(txn kv.Transaction, ctx sessionctx.Cont
 	if err != nil {
 		return err
 	}
-	c.CachedTableLockMeta = info
+	// c.CachedTableLockMeta = info
 
 	return nil
 }
 
 // AddRecord implements the AddRecord method for the table.Table interface.
 func (c *cachedTable) AddRecord(ctx sessionctx.Context, r []types.Datum, opts ...table.AddRecordOption) (recordID kv.Handle, err error) {
-	//go c.UpdateWRLock(ctx)
-	return cachedTableAddRecord(ctx, c, r, opts)
-}
-func cachedTableAddRecord(ctx sessionctx.Context, c *cachedTable, r []types.Datum, opts []table.AddRecordOption) (recordID kv.Handle, err error) {
 	txn, err := ctx.Txn(true)
 	if err != nil {
 		return nil, err
 	}
-	cond, err := c.WriteCondition(ctx, txn.StartTS())
+	err = c.LockForWrite(txn.StartTS())
 	if err != nil {
 		return nil, err
 	}
-	if cond {
-		newTxn, err := ctx.GetStore().Begin()
-		if err != nil {
-			return nil, err
-		}
-		record, err := c.TableCommon.AddRecord(ctx, r, opts...)
-		if err != nil {
-			return nil, err
-		}
-		c.msg = applyMsg{op: CLEANWLOCKINWRITE, ts: txn.StartTS(), txn:newTxn}
-		c.UpdateWRLock(ctx)
-		return record, nil
-	}  else {
-		log.Error("打咩")
+	// newTxn, err := ctx.GetStore().Begin()
+	// if err != nil {
+	// 	return nil, err
+	// }
+	record, err := c.TableCommon.AddRecord(ctx, r, opts...)
+	if err != nil {
+		return nil, err
 	}
+	// c.msg = applyMsg{op: CLEANWLOCKINWRITE, ts: txn.StartTS(), txn:newTxn}
+	// c.UpdateWRLock(ctx)
+	return record, nil
 
-	return nil, nil
 }
 
 // UpdateRecord implements table.Table
 func (c *cachedTable) UpdateRecord(ctx context.Context, sctx sessionctx.Context, h kv.Handle, currData, newData []types.Datum, touched []bool) error {
-	//go c.UpdateWRLock(sctx)
-	return cachedTableUpdateRecord(ctx, sctx, c, h, currData, newData, touched)
-}
-
-func cachedTableUpdateRecord(gctx context.Context, ctx sessionctx.Context, c *cachedTable, h kv.Handle, currData, newData []types.Datum, touched []bool) error {
-
-	txn, err := ctx.Txn(true)
+	txn, err := sctx.Txn(true)
 	if err != nil {
 		return err
 	}
-	cond, err := c.WriteCondition(ctx, txn.StartTS())
+
+	err = c.LockForWrite(txn.StartTS())
 	if err != nil {
 		return err
 	}
-	if cond {
-		err := c.TableCommon.UpdateRecord(gctx, ctx, h, currData, newData, touched)
-		if err != nil {
-			return err
-		}
-		newTxn, err := ctx.GetStore().Begin()
-		if err != nil {
-			return err
-		}
-		c.msg = applyMsg{op: CLEANWLOCKINWRITE, ts: txn.StartTS(), txn:newTxn}
-		c.UpdateWRLock(ctx)
-		return nil
-	} else {
-		log.Error("打咩")
+
+	err = c.TableCommon.UpdateRecord(ctx, sctx, h, currData, newData, touched)
+	if err != nil {
+		return err
 	}
+	// newTxn, err := sctx.GetStore().Begin()
+	// if err != nil {
+	// 	return err
+	// }
+	// c.msg = applyMsg{op: CLEANWLOCKINWRITE, ts: txn.StartTS(), txn:newTxn}
+	// c.UpdateWRLock(sctx)
 	//err = c.UpdateForWrite(ctx, ts)
 	if err != nil {
 		return err
@@ -535,25 +653,21 @@ func (c *cachedTable) RemoveRecord(ctx sessionctx.Context, h kv.Handle, r []type
 		return err
 	}
 	ts := txn.StartTS()
-	cond, err := c.WriteCondition(ctx, txn.StartTS())
+
+	err = c.LockForWrite(ts)
 	if err != nil {
 		return err
 	}
-	if cond {
-		err := c.TableCommon.RemoveRecord(ctx, h, r)
-		if err != nil {
-			return err
-		}
-		newTxn, err := ctx.GetStore().Begin()
-		if err != nil {
-			return err
-		}
-		c.msg = applyMsg{op: CLEANWLOCKINWRITE, ts:ts, txn:newTxn}
-		c.UpdateWRLock(ctx)
-		return nil
-	} else {
-		log.Error("打咩")
+	err = c.TableCommon.RemoveRecord(ctx, h, r)
+	if err != nil {
+		return err
 	}
+	// newTxn, err := ctx.GetStore().Begin()
+	// if err != nil {
+	// 	return err
+	// }
+	// c.msg = applyMsg{op: CLEANWLOCKINWRITE, ts:ts, txn:newTxn}
+	// c.UpdateWRLock(ctx)
 	//err = c.UpdateForWrite(ctx, ts)
 	return nil
 }
