@@ -181,6 +181,12 @@ func RegisterMetrics() {
 	prometheus.MustRegister(StatsCacheLRUGauge)
 	prometheus.MustRegister(StatsHealthyGauge)
 
+	prometheus.MustRegister(ChunkAllocCounter)
+	prometheus.MustRegister(ChunkReuseCounter)
+	prometheus.MustRegister(ChunkFreeCounter)
+	prometheus.MustRegister(ChunkRecycleCounter)
+	prometheus.MustRegister(ChunkAvoidReuseCounter)
+
 	tikvmetrics.InitMetrics(TiDB, TiKVClient)
 	tikvmetrics.RegisterMetrics()
 	tikvmetrics.TiKVPanicCounter = PanicCounter // reset tidb metrics for tikv metrics

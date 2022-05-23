@@ -17,6 +17,7 @@ package chunk
 import (
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/mathutil"
+	"github.com/pingcap/tidb/metrics"
 )
 
 // Allocator is an interface defined to reduce object allocation.
@@ -97,7 +98,7 @@ func (a *allocator) Reset() {
 var _ ColumnAllocator = &poolColumnAllocator{}
 
 type poolColumnAllocator struct {
-	pool map[int]freeList
+	pool     map[int]freeList
 }
 
 // poolColumnAllocator implements the ColumnAllocator interface.
@@ -106,9 +107,12 @@ func (alloc *poolColumnAllocator) NewColumn(ft *types.FieldType, count int) *Col
 	l := alloc.pool[typeSize]
 	if l != nil && !l.empty() {
 		col := l.pop()
+		metrics.ChunkReuseCounter.Add(float64(col.memUsage()))
 		return col
 	}
-	return newColumn(typeSize, count)
+	col := newColumn(typeSize, count)
+	metrics.ChunkAllocCounter.Add(float64(col.memUsage()))
+	return col
 }
 
 func (alloc *poolColumnAllocator) init() {
@@ -117,10 +121,12 @@ func (alloc *poolColumnAllocator) init() {
 
 func (alloc *poolColumnAllocator) put(col *Column) {
 	if col.avoidReusing {
+		metrics.ChunkAvoidReuseCounter.Add(float64(col.memUsage()))
 		return
 	}
 	typeSize := col.typeSize()
 	if typeSize <= 0 {
+		metrics.ChunkFreeCounter.Add(float64(col.memUsage()))
 		return
 	}
 
@@ -152,7 +158,9 @@ func (l freeList) pop() *Column {
 func (l freeList) push(c *Column) {
 	if len(l) >= maxFreeColumnsPerType {
 		// Don't cache too much to save memory.
+		metrics.ChunkFreeCounter.Add(float64(c.memUsage()))
 		return
 	}
 	l[c] = struct{}{}
+	metrics.ChunkRecycleCounter.Add(float64(c.memUsage()))
 }

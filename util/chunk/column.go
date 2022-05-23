@@ -120,6 +120,10 @@ func newVarLenColumn(capacity int) *Column {
 	}
 }
 
+func (c *Column) memUsage() int64 {
+	return int64(unsafe.Sizeof(*c)) + int64(cap(c.nullBitmap)) + int64(cap(c.offsets)*8) + int64(cap(c.data)) + int64(cap(c.elemBuf))
+}
+
 func (c *Column) typeSize() int {
 	if len(c.elemBuf) > 0 {
 		return len(c.elemBuf)
