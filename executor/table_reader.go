@@ -338,6 +338,7 @@ func (e *TableReaderExecutor) buildKVReqSeparately(ctx context.Context, ranges [
 			SetFromInfoSchema(e.ctx.GetInfoSchema()).
 			SetMemTracker(e.memTracker).
 			SetStoreType(e.storeType).
+			SetPaging(true).
 			SetAllowBatchCop(e.batchCop).Build()
 		if err != nil {
 			return nil, err
@@ -376,6 +377,7 @@ func (e *TableReaderExecutor) buildKVReqForPartitionTableScan(ctx context.Contex
 		SetFromInfoSchema(e.ctx.GetInfoSchema()).
 		SetMemTracker(e.memTracker).
 		SetStoreType(e.storeType).
+		SetPaging(true).
 		SetAllowBatchCop(e.batchCop).Build()
 	if err != nil {
 		return nil, err
@@ -407,6 +409,7 @@ func (e *TableReaderExecutor) buildKVReq(ctx context.Context, ranges []*ranger.R
 		SetFromInfoSchema(e.ctx.GetInfoSchema()).
 		SetMemTracker(e.memTracker).
 		SetStoreType(e.storeType).
+		SetPaging(true).
 		SetAllowBatchCop(e.batchCop)
 	return reqBuilder.Build()
 }

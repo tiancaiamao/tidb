@@ -313,6 +313,7 @@ func (e *IndexReaderExecutor) open(ctx context.Context, kvRanges []kv.KeyRange) 
 		SetIsStaleness(e.isStaleness).
 		SetFromSessionVars(e.ctx.GetSessionVars()).
 		SetFromInfoSchema(e.ctx.GetInfoSchema()).
+		SetPaging(true).
 		SetMemTracker(e.memTracker)
 	kvReq, err := builder.Build()
 	if err != nil {
