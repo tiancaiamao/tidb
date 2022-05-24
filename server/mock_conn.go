@@ -98,7 +98,7 @@ func CreateMockConn(t *testing.T, store kv.Storage, server *Server) MockConn {
 		salt:       []byte{},
 		collation:  mysql.DefaultCollationID,
 		alloc:      arena.NewAllocator(1024),
-		chunkAlloc: chunk.NewAllocator(),
+		chunkAlloc: chunk.NewArenaAlloc(),
 		pkt: &packetIO{
 			bufWriter: bufio.NewWriter(bytes.NewBuffer(nil)),
 		},

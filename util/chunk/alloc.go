@@ -15,10 +15,114 @@
 package chunk
 
 import (
+	"math"
+	"unsafe"
+
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/mathutil"
-	"github.com/pingcap/tidb/metrics"
+//	"github.com/pingcap/tidb/metrics"
 )
+
+type Alloc interface {
+	Alloc(int) []byte
+}
+
+func allocInt64(alloc Alloc, sz int) []int64 {
+	b := alloc.Alloc(8 * sz)
+	return (*[math.MaxInt32]int64)(unsafe.Pointer(&b[0]))[:sz]
+}
+
+type ArenaAlloc interface {
+	Alloc
+	Reset()
+}
+
+type defaultArenaAlloc struct {}
+
+func (_ defaultArenaAlloc) Alloc(sz int) []byte {
+	return make([]byte, sz)
+}
+
+func (_ defaultArenaAlloc) Reset() {
+}
+
+type arenaAlloc struct {
+	inuse []blockNode
+	freelist []blockNode
+}
+
+const blockSize = 4<<20
+type block [blockSize]byte
+type blockNode struct {
+	data *block
+	offset int
+	next *blockNode // free list
+}
+
+func NewArenaAlloc() *arenaAlloc {
+	return &arenaAlloc{}
+}
+
+func (a *arenaAlloc) Alloc(sz int) []byte {
+	if sz > blockSize {
+		return make([]byte, sz)
+	}
+
+	var b *blockNode
+	if len(a.inuse) == 0 {
+		b = a.newBlockNode()
+	} else {
+		b = &a.inuse[len(a.inuse) - 1]
+		if b.offset + sz > blockSize {
+			b = a.newBlockNode()
+		}
+	}
+	ret := (*b.data)[b.offset: b.offset+sz]
+	for i:=0; i<len(ret); i++ {
+		ret[i] = 0
+	}
+	b.offset += sz
+	return ret
+}
+
+func (a *arenaAlloc) newBlockNode() *blockNode {
+	if len(a.freelist) > 0 {
+		v := a.freelist[len(a.freelist) - 1]
+		a.freelist = a.freelist[:len(a.freelist) - 1]
+		a.inuse = append(a.inuse, v)
+	} else {
+		data := new(block)
+		a.inuse = append(a.inuse, blockNode{data: data})
+	}
+	return &a.inuse[len(a.inuse) - 1]
+}
+
+func (a *arenaAlloc) Reset() {
+	for _, v := range a.inuse {
+		v.offset = 0
+		a.freelist = append(a.freelist, v)
+	}
+}
+
+// New creates a new chunk.
+//  cap: the limit for the max number of rows.
+//  maxChunkSize: the max limit for the number of rows.
+func NewFromAlloc(alloc Alloc, fields []*types.FieldType, capacity, maxChunkSize int) *Chunk {
+	chk := &Chunk{
+		columns:  make([]*Column, 0, len(fields)),
+		capacity: mathutil.Min(capacity, maxChunkSize),
+		// set the default value of requiredRows to maxChunkSize to let chk.IsFull() behave
+		// like how we judge whether a chunk is full now, then the statement
+		// "chk.NumRows() < maxChunkSize"
+		// equals to "!chk.IsFull()".
+		requiredRows: maxChunkSize,
+	}
+
+	for _, f := range fields {
+		chk.columns = append(chk.columns, newColumn(alloc, getFixedLen(f), chk.capacity))
+	}
+	return chk
+}
 
 // Allocator is an interface defined to reduce object allocation.
 // The typical usage is to call Reset() to recycle objects into a pool,
@@ -28,12 +132,14 @@ type Allocator interface {
 	Reset()
 }
 
+/*
 // NewAllocator creates an Allocator.
 func NewAllocator() *allocator {
 	ret := &allocator{}
 	ret.columnAlloc.init()
 	return ret
 }
+
 
 var _ Allocator = &allocator{}
 
@@ -164,3 +270,5 @@ func (l freeList) push(c *Column) {
 	l[c] = struct{}{}
 	metrics.ChunkRecycleCounter.Add(float64(c.memUsage()))
 }
+
+*/

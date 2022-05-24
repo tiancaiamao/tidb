@@ -52,13 +52,13 @@ func (r *SimpleRecordSet) Next(ctx context.Context, req *chunk.Chunk) error {
 }
 
 // NewChunk implements the sqlexec.RecordSet interface.
-func (r *SimpleRecordSet) NewChunk(alloc chunk.Allocator) *chunk.Chunk {
+func (r *SimpleRecordSet) NewChunk(alloc chunk.ArenaAlloc) *chunk.Chunk {
 	fields := make([]*types.FieldType, 0, len(r.ResultFields))
 	for _, field := range r.ResultFields {
 		fields = append(fields, &field.Column.FieldType)
 	}
 	if alloc != nil {
-		return alloc.Alloc(fields, 0, r.MaxChunkSize)
+		return chunk.NewFromAlloc(alloc, fields, 0, r.MaxChunkSize)
 	}
 	return chunk.New(fields, r.MaxChunkSize, r.MaxChunkSize)
 }

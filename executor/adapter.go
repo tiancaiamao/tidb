@@ -167,13 +167,13 @@ func (a *recordSet) Next(ctx context.Context, req *chunk.Chunk) (err error) {
 }
 
 // NewChunk create a chunk base on top-level executor's newFirstChunk().
-func (a *recordSet) NewChunk(alloc chunk.Allocator) *chunk.Chunk {
+func (a *recordSet) NewChunk(alloc chunk.ArenaAlloc) *chunk.Chunk {
 	if alloc == nil {
 		return newFirstChunk(a.executor)
 	}
 
 	base := a.executor.base()
-	return alloc.Alloc(base.retFieldTypes, base.initCap, base.maxChunkSize)
+	return chunk.NewFromAlloc(alloc, base.retFieldTypes, base.initCap, base.maxChunkSize)
 }
 
 func (a *recordSet) Close() error {
@@ -577,13 +577,13 @@ func (c *chunkRowRecordSet) Next(ctx context.Context, chk *chunk.Chunk) error {
 	return nil
 }
 
-func (c *chunkRowRecordSet) NewChunk(alloc chunk.Allocator) *chunk.Chunk {
+func (c *chunkRowRecordSet) NewChunk(alloc chunk.ArenaAlloc) *chunk.Chunk {
 	if alloc == nil {
 		return newFirstChunk(c.e)
 	}
 
 	base := c.e.base()
-	return alloc.Alloc(base.retFieldTypes, base.initCap, base.maxChunkSize)
+	return chunk.NewFromAlloc(alloc, base.retFieldTypes, base.initCap, base.maxChunkSize)
 }
 
 func (c *chunkRowRecordSet) Close() error {

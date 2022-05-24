@@ -1210,7 +1210,7 @@ func createSessionWithDomainFunc(store kv.Storage) func(*domain.Domain) (pools.R
 	}
 }
 
-func drainRecordSet(ctx context.Context, se *session, rs sqlexec.RecordSet, alloc chunk.Allocator) ([]chunk.Row, error) {
+func drainRecordSet(ctx context.Context, se *session, rs sqlexec.RecordSet, alloc chunk.ArenaAlloc) ([]chunk.Row, error) {
 	var rows []chunk.Row
 	var req *chunk.Chunk
 	req = rs.NewChunk(alloc)

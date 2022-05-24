@@ -184,7 +184,7 @@ type RecordSet interface {
 	Next(ctx context.Context, req *chunk.Chunk) error
 
 	// NewChunk create a chunk, if allocator is nil, the default one is used.
-	NewChunk(chunk.Allocator) *chunk.Chunk
+	NewChunk(chunk.ArenaAlloc) *chunk.Chunk
 
 	// Close closes the underlying iterator, call Next after Close will
 	// restart the iteration.

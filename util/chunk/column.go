@@ -75,6 +75,7 @@ type ColumnAllocator interface {
 	NewColumn(ft *types.FieldType, count int) *Column
 }
 
+/*
 // DefaultColumnAllocator is the default implementation of ColumnAllocator.
 type DefaultColumnAllocator struct{}
 
@@ -82,41 +83,42 @@ type DefaultColumnAllocator struct{}
 func (DefaultColumnAllocator) NewColumn(ft *types.FieldType, capacity int) *Column {
 	return newColumn(getFixedLen(ft), capacity)
 }
+*/
 
 // NewColumn creates a new column with the specific type and capacity.
 func NewColumn(ft *types.FieldType, capacity int) *Column {
-	return newColumn(getFixedLen(ft), capacity)
+	return newColumn(defaultArenaAlloc{}, getFixedLen(ft), capacity)
 }
 
-func newColumn(ts, capacity int) *Column {
+func newColumn(alloc Alloc, ts, capacity int) *Column {
 	var col *Column
 	if ts == varElemLen {
-		col = newVarLenColumn(capacity)
+		col = newVarLenColumn(alloc, capacity)
 	} else {
-		col = newFixedLenColumn(ts, capacity)
+		col = newFixedLenColumn(alloc, ts, capacity)
 	}
 	return col
 }
 
 // newFixedLenColumn creates a fixed length Column with elemLen and initial data capacity.
-func newFixedLenColumn(elemLen, capacity int) *Column {
+func newFixedLenColumn(alloc Alloc, elemLen, capacity int) *Column {
 	return &Column{
-		elemBuf:    make([]byte, elemLen),
-		data:       make([]byte, 0, capacity*elemLen),
-		nullBitmap: make([]byte, 0, (capacity+7)>>3),
+		elemBuf:    alloc.Alloc(elemLen),
+		data:       alloc.Alloc(capacity*elemLen),
+		nullBitmap: alloc.Alloc( (capacity+7)>>3),
 	}
 }
 
 // newVarLenColumn creates a variable length Column with initial data capacity.
-func newVarLenColumn(capacity int) *Column {
+func newVarLenColumn(alloc Alloc, capacity int) *Column {
 	estimatedElemLen := 8
 	// For varLenColumn (e.g. varchar), the accurate length of an element is unknown.
 	// Therefore, in the first executor.Next we use an experience value -- 8 (so it may make runtime.growslice)
 
 	return &Column{
-		offsets:    make([]int64, 1, capacity+1),
-		data:       make([]byte, 0, capacity*estimatedElemLen),
-		nullBitmap: make([]byte, 0, (capacity+7)>>3),
+		offsets:    allocInt64(alloc, 8*(capacity+1)),
+		data:       alloc.Alloc(capacity*estimatedElemLen),
+		nullBitmap: alloc.Alloc((capacity+7)>>3),
 	}
 }
 
@@ -706,7 +708,7 @@ func (c *Column) CopyReconstruct(sel []int, dst *Column) *Column {
 	}
 
 	if dst == nil {
-		dst = newColumn(c.typeSize(), len(sel))
+		dst = newColumn(defaultArenaAlloc{}, c.typeSize(), len(sel))
 	} else {
 		dst.reset()
 	}

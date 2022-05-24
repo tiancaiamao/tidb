@@ -83,12 +83,12 @@ func New(fields []*types.FieldType, capacity, maxChunkSize int) *Chunk {
 
 // renewWithCapacity creates a new Chunk based on an existing Chunk with capacity. The newly
 // created Chunk has the same data schema with the old Chunk.
-func renewWithCapacity(chk *Chunk, capacity, requiredRows int) *Chunk {
+func renewWithCapacity(alloc Alloc, chk *Chunk, capacity, requiredRows int) *Chunk {
 	if chk.columns == nil {
 		return &Chunk{}
 	}
 	return &Chunk{
-		columns:        renewColumns(chk.columns, capacity),
+		columns:        renewColumns(alloc, chk.columns, capacity),
 		numVirtualRows: 0,
 		capacity:       capacity,
 		requiredRows:   requiredRows,
@@ -102,15 +102,15 @@ func renewWithCapacity(chk *Chunk, capacity, requiredRows int) *Chunk {
 //  maxChunkSize: the limit for the max number of rows.
 func Renew(chk *Chunk, maxChunkSize int) *Chunk {
 	newCap := reCalcCapacity(chk, maxChunkSize)
-	return renewWithCapacity(chk, newCap, maxChunkSize)
+	return renewWithCapacity(defaultArenaAlloc{}, chk, newCap, maxChunkSize)
 }
 
 // renewColumns creates the columns of a Chunk. The capacity of the newly
 // created columns is equal to cap.
-func renewColumns(oldCol []*Column, capacity int) []*Column {
+func renewColumns(alloc Alloc, oldCol []*Column, capacity int) []*Column {
 	columns := make([]*Column, 0, len(oldCol))
 	for _, col := range oldCol {
-		columns = append(columns, newColumn(col.typeSize(), capacity))
+		columns = append(columns, newColumn(alloc, col.typeSize(), capacity))
 	}
 	return columns
 }
@@ -287,7 +287,7 @@ func (c *Chunk) CopyConstructSel() *Chunk {
 	if c.sel == nil {
 		return c.CopyConstruct()
 	}
-	newChk := renewWithCapacity(c, c.capacity, c.requiredRows)
+	newChk := renewWithCapacity(defaultArenaAlloc{}, c, c.capacity, c.requiredRows)
 	for colIdx, dstCol := range newChk.columns {
 		for _, rowIdx := range c.sel {
 			appendCellByCell(dstCol, c.columns[colIdx], rowIdx)
@@ -309,7 +309,7 @@ func (c *Chunk) GrowAndReset(maxChunkSize int) {
 		return
 	}
 	c.capacity = newCap
-	c.columns = renewColumns(c.columns, newCap)
+	c.columns = renewColumns(defaultArenaAlloc{}, c.columns, newCap)
 	c.numVirtualRows = 0
 	c.requiredRows = maxChunkSize
 }

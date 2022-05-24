@@ -512,7 +512,7 @@ func (e *analyzeColumnsExec) Process(key, value []byte) error {
 	return nil
 }
 
-func (e *analyzeColumnsExec) NewChunk(_ chunk.Allocator) *chunk.Chunk {
+func (e *analyzeColumnsExec) NewChunk(_ chunk.ArenaAlloc) *chunk.Chunk {
 	fields := make([]*types.FieldType, 0, len(e.fields))
 	for _, field := range e.fields {
 		fields = append(fields, &field.Column.FieldType)

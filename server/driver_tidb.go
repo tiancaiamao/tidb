@@ -315,7 +315,7 @@ type tidbResultSet struct {
 	preparedStmt *core.CachedPrepareStmt
 }
 
-func (trs *tidbResultSet) NewChunk(alloc chunk.Allocator) *chunk.Chunk {
+func (trs *tidbResultSet) NewChunk(alloc chunk.ArenaAlloc) *chunk.Chunk {
 	return trs.recordSet.NewChunk(alloc)
 }
 

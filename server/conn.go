@@ -161,7 +161,7 @@ func newClientConn(s *Server) *clientConn {
 		connectionID: s.globalConnID.NextID(),
 		collation:    mysql.DefaultCollationID,
 		alloc:        arena.NewAllocator(32 * 1024),
-		chunkAlloc:   chunk.NewAllocator(),
+		chunkAlloc:   chunk.NewArenaAlloc(),
 		status:       connStatusDispatching,
 		lastActive:   time.Now(),
 		authPlugin:   mysql.AuthNativePassword,
@@ -181,7 +181,7 @@ type clientConn struct {
 	dbname       string            // default database name.
 	salt         []byte            // random bytes used for authentication.
 	alloc        arena.Allocator   // an memory allocator for reducing memory allocation.
-	chunkAlloc   chunk.Allocator
+	chunkAlloc   chunk.ArenaAlloc
 	lastPacket   []byte // latest sql query string, currently used for logging error.
 	// ShowProcess() and mysql.ComChangeUser both visit this field, ShowProcess() read information through
 	// the TiDBContext and mysql.ComChangeUser re-create it, so a lock is required here.
