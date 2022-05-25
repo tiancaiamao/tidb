@@ -17,10 +17,14 @@ package chunk
 import (
 	"math"
 	"unsafe"
+	"fmt"
+	"sync"
 
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/mathutil"
+	"github.com/pingcap/tidb/util/arena"
 //	"github.com/pingcap/tidb/metrics"
+	"gophers.dev/pkgs/offheap"
 )
 
 type Alloc interface {
@@ -32,15 +36,14 @@ func allocInt64(alloc Alloc, sz int) []int64 {
 	return (*[math.MaxInt32]int64)(unsafe.Pointer(&b[0]))[:sz]
 }
 
-type ArenaAlloc interface {
-	Alloc
-	Reset()
-}
-
 type defaultArenaAlloc struct {}
 
 func (_ defaultArenaAlloc) Alloc(sz int) []byte {
 	return make([]byte, sz)
+}
+
+func (_ defaultArenaAlloc) AllocWithLen(length int, capacity int) []byte {
+	return make([]byte, length, capacity)
 }
 
 func (_ defaultArenaAlloc) Reset() {
@@ -49,6 +52,7 @@ func (_ defaultArenaAlloc) Reset() {
 type arenaAlloc struct {
 	inuse []blockNode
 	freelist []blockNode
+	sync.Mutex
 }
 
 const blockSize = 4<<20
@@ -59,6 +63,10 @@ type blockNode struct {
 	next *blockNode // free list
 }
 
+var _  arena.Allocator = &arenaAlloc{}
+
+type ArenaAlloc = arena.Allocator
+
 func NewArenaAlloc() *arenaAlloc {
 	return &arenaAlloc{}
 }
@@ -67,6 +75,8 @@ func (a *arenaAlloc) Alloc(sz int) []byte {
 	if sz > blockSize {
 		return make([]byte, sz)
 	}
+	a.Lock()
+	defer a.Unlock()
 
 	var b *blockNode
 	if len(a.inuse) == 0 {
@@ -77,37 +87,69 @@ func (a *arenaAlloc) Alloc(sz int) []byte {
 			b = a.newBlockNode()
 		}
 	}
-	ret := (*b.data)[b.offset: b.offset+sz]
-	for i:=0; i<len(ret); i++ {
-		ret[i] = 0
+
+	for i:=0; i<sz; i++ {
+		b.data[b.offset+i] = 0
 	}
+	ret := (*b.data)[b.offset:b.offset:b.offset+sz]
 	b.offset += sz
 	return ret
+}
+
+func (a *arenaAlloc) AllocWithLen(length int, capacity int) []byte {
+	slice := a.Alloc(capacity)
+	return slice[:length:capacity]
 }
 
 func (a *arenaAlloc) newBlockNode() *blockNode {
 	if len(a.freelist) > 0 {
 		v := a.freelist[len(a.freelist) - 1]
+		v.offset = 0
 		a.freelist = a.freelist[:len(a.freelist) - 1]
 		a.inuse = append(a.inuse, v)
+		fmt.Println("new block node from freelist")
 	} else {
-		data := new(block)
+		// data := new(block)
+		m, err := offheap.New(blockSize)
+		if err != nil {
+			panic(err)
+		}
+		data := (*block)(unsafe.Pointer(&m[0]))
+		
 		a.inuse = append(a.inuse, blockNode{data: data})
+		fmt.Println("new block node allocate")
 	}
 	return &a.inuse[len(a.inuse) - 1]
 }
 
+func (b *blockNode) Close() {
+	m := offheap.Memory((*b.data)[:])
+	m.Unmap()
+	fmt.Println("block node free...")
+}
+
 func (a *arenaAlloc) Reset() {
+	a.Lock()
+	defer a.Unlock()
+	
 	for _, v := range a.inuse {
 		v.offset = 0
 		a.freelist = append(a.freelist, v)
+	}
+	a.inuse = a.inuse[:0]
+}
+
+func (a *arenaAlloc) Close() {
+	a.Reset()
+	for _, v := range a.freelist {
+		v.Close()
 	}
 }
 
 // New creates a new chunk.
 //  cap: the limit for the max number of rows.
 //  maxChunkSize: the max limit for the number of rows.
-func NewFromAlloc(alloc Alloc, fields []*types.FieldType, capacity, maxChunkSize int) *Chunk {
+func NewFromAlloc(alloc ArenaAlloc, fields []*types.FieldType, capacity, maxChunkSize int) *Chunk {
 	chk := &Chunk{
 		columns:  make([]*Column, 0, len(fields)),
 		capacity: mathutil.Min(capacity, maxChunkSize),

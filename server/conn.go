@@ -334,6 +334,12 @@ func (cc *clientConn) Close() error {
 
 func closeConn(cc *clientConn, connections int) error {
 	metrics.ConnGauge.Set(float64(connections))
+	if closer, ok := cc.chunkAlloc.(interface{Close()}); ok {
+		closer.Close()
+		fmt.Println("close conn release chunk alloc???")
+	} else {
+		fmt.Println("fuck, close conn what happen???")
+	}
 	if cc.bufReadConn != nil {
 		err := cc.bufReadConn.Close()
 		if err != nil {
@@ -828,6 +834,7 @@ func (cc *clientConn) openSession() error {
 		return err
 	}
 	cc.setCtx(ctx)
+	ctx.GetSessionVars().Alloc = cc.chunkAlloc
 
 	err = cc.server.checkConnectionCount()
 	if err != nil {
@@ -2406,6 +2413,9 @@ func (cc *clientConn) handleResetConnection(ctx context.Context) error {
 		}
 	}
 	cc.ctx.SetSessionManager(cc.server)
+	
+	fmt.Println("!!!!! new connection !!!!  set alloc")
+	cc.ctx.GetSessionVars().Alloc = cc.chunkAlloc
 
 	return cc.handleCommonConnectionReset(ctx)
 }

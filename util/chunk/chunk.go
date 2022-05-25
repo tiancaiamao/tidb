@@ -83,7 +83,7 @@ func New(fields []*types.FieldType, capacity, maxChunkSize int) *Chunk {
 
 // renewWithCapacity creates a new Chunk based on an existing Chunk with capacity. The newly
 // created Chunk has the same data schema with the old Chunk.
-func renewWithCapacity(alloc Alloc, chk *Chunk, capacity, requiredRows int) *Chunk {
+func renewWithCapacity(alloc ArenaAlloc, chk *Chunk, capacity, requiredRows int) *Chunk {
 	if chk.columns == nil {
 		return &Chunk{}
 	}
@@ -107,7 +107,7 @@ func Renew(chk *Chunk, maxChunkSize int) *Chunk {
 
 // renewColumns creates the columns of a Chunk. The capacity of the newly
 // created columns is equal to cap.
-func renewColumns(alloc Alloc, oldCol []*Column, capacity int) []*Column {
+func renewColumns(alloc ArenaAlloc, oldCol []*Column, capacity int) []*Column {
 	columns := make([]*Column, 0, len(oldCol))
 	for _, col := range oldCol {
 		columns = append(columns, newColumn(alloc, col.typeSize(), capacity))

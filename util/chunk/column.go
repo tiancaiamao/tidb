@@ -90,7 +90,7 @@ func NewColumn(ft *types.FieldType, capacity int) *Column {
 	return newColumn(defaultArenaAlloc{}, getFixedLen(ft), capacity)
 }
 
-func newColumn(alloc Alloc, ts, capacity int) *Column {
+func newColumn(alloc ArenaAlloc, ts, capacity int) *Column {
 	var col *Column
 	if ts == varElemLen {
 		col = newVarLenColumn(alloc, capacity)
@@ -101,9 +101,14 @@ func newColumn(alloc Alloc, ts, capacity int) *Column {
 }
 
 // newFixedLenColumn creates a fixed length Column with elemLen and initial data capacity.
-func newFixedLenColumn(alloc Alloc, elemLen, capacity int) *Column {
+func newFixedLenColumn(alloc ArenaAlloc, elemLen, capacity int) *Column {
 	return &Column{
-		elemBuf:    alloc.Alloc(elemLen),
+//          	elemBuf:    make([]byte, elemLen),
+//                data:       make([]byte, 0, capacity*elemLen),
+//		nullBitmap: make([]byte, 0, (capacity+7)>>3),
+
+
+		elemBuf:    alloc.AllocWithLen(elemLen, elemLen),
 		data:       alloc.Alloc(capacity*elemLen),
 		nullBitmap: alloc.Alloc( (capacity+7)>>3),
 	}
@@ -115,8 +120,15 @@ func newVarLenColumn(alloc Alloc, capacity int) *Column {
 	// For varLenColumn (e.g. varchar), the accurate length of an element is unknown.
 	// Therefore, in the first executor.Next we use an experience value -- 8 (so it may make runtime.growslice)
 
+	
+//	offset := allocInt64(alloc, 8*(capacity+1))
+//	offset = offset[:1:capacity+1]
 	return &Column{
-		offsets:    allocInt64(alloc, 8*(capacity+1)),
+              offsets:    make([]int64, 1, capacity+1),
+ //              data:       make([]byte, 0, capacity*estimatedElemLen),
+//               nullBitmap: make([]byte, 0, (capacity+7)>>3),
+	
+//		offsets:    offset,
 		data:       alloc.Alloc(capacity*estimatedElemLen),
 		nullBitmap: alloc.Alloc((capacity+7)>>3),
 	}

@@ -18,6 +18,7 @@ import (
 	"encoding/binary"
 	"reflect"
 	"unsafe"
+//	"fmt"
 
 	"github.com/pingcap/tidb/parser/mysql"
 	"github.com/pingcap/tidb/types"
@@ -100,14 +101,23 @@ func (c *Codec) Decode(buffer []byte) (*Chunk, []byte) {
 
 // DecodeToChunk decodes a Chunk from a byte slice, return the remained unused bytes.
 func (c *Codec) DecodeToChunk(buffer []byte, chk *Chunk) (remained []byte) {
+	return c.DecodeToChunkWithAlloc(buffer, chk, nil)
+}
+
+// DecodeToChunk decodes a Chunk from a byte slice, return the remained unused bytes.
+func (c *Codec) DecodeToChunkWithAlloc(buffer []byte, chk *Chunk, alloc ArenaAlloc) (remained []byte) {
 	for i := 0; i < len(chk.columns); i++ {
-		buffer = c.decodeColumn(buffer, chk.columns[i], i)
+		buffer = c.decodeColumnWithAlloc(buffer, chk.columns[i], i, alloc)
 	}
 	return buffer
 }
 
 // decodeColumn decodes a Column from a byte slice, return the remained unused bytes.
 func (c *Codec) decodeColumn(buffer []byte, col *Column, ordinal int) (remained []byte) {
+	return c.decodeColumnWithAlloc(buffer, col, ordinal, defaultArenaAlloc{})
+}
+
+func (c *Codec) decodeColumnWithAlloc(buffer []byte, col *Column, ordinal int, alloc ArenaAlloc) (remained []byte) {
 	// Todo(Shenghui Wu): Optimize all data is null.
 	// decode length.
 	col.length = int(binary.LittleEndian.Uint32(buffer))
@@ -120,7 +130,9 @@ func (c *Codec) decodeColumn(buffer []byte, col *Column, ordinal int) (remained 
 	// decode nullBitmap.
 	if nullCount > 0 {
 		numNullBitmapBytes := (col.length + 7) / 8
-		col.nullBitmap = append([]byte{}, buffer[:numNullBitmapBytes:numNullBitmapBytes]...)
+		col.nullBitmap = buffer[:numNullBitmapBytes:numNullBitmapBytes]
+		// col.nullBitmap = append([]byte{}, buffer[:numNullBitmapBytes:numNullBitmapBytes]...)
+		// col.nullBitmap = append(alloc.Alloc(numNullBitmapBytes), buffer[:numNullBitmapBytes:numNullBitmapBytes]...)
 		buffer = buffer[numNullBitmapBytes:]
 	} else {
 		c.setAllNotNull(col)
@@ -131,7 +143,11 @@ func (c *Codec) decodeColumn(buffer []byte, col *Column, ordinal int) (remained 
 	numDataBytes := int64(numFixedBytes * col.length)
 	if numFixedBytes == -1 {
 		numOffsetBytes := (col.length + 1) * 8
-		col.offsets = append([]int64{}, bytesToI64Slice(buffer[:numOffsetBytes:numOffsetBytes])...)
+		col.offsets = bytesToI64Slice(buffer[:numOffsetBytes:numOffsetBytes])
+		// col.offsets = append([]int64{}, bytesToI64Slice(buffer[:numOffsetBytes:numOffsetBytes])...)
+		// tmp := alloc.Alloc(numOffsetBytes)
+		// tmp = append(tmp, buffer[:numOffsetBytes:numOffsetBytes]...)
+		// col.offsets = bytesToI64Slice(tmp)
 		buffer = buffer[numOffsetBytes:]
 		numDataBytes = col.offsets[col.length]
 	} else if cap(col.elemBuf) < numFixedBytes {
@@ -139,7 +155,17 @@ func (c *Codec) decodeColumn(buffer []byte, col *Column, ordinal int) (remained 
 	}
 
 	// decode data.
-	col.data = append([]byte{}, buffer[:numDataBytes:numDataBytes]...)
+	if alloc == nil {
+		col.data = buffer[:numDataBytes:numDataBytes]
+	} else {
+		tmp := alloc.Alloc(int(numDataBytes))
+		if cap(tmp) != int(numDataBytes) {
+			panic("what the fuck?!")
+		}
+		col.data = append(tmp, buffer[:numDataBytes:numDataBytes]...)
+	}
+	// col.data = buffer[:numDataBytes:numDataBytes]
+	// col.data = append([]byte{}, buffer[:numDataBytes:numDataBytes]...)
 	// The column reference the data of the grpc response, the memory of the grpc message cannot be GCed if we reuse
 	// this column. Thus, we set `avoidReusing` to true.
 //	col.avoidReusing = true
@@ -248,11 +274,12 @@ type Decoder struct {
 	intermChk    *Chunk
 	codec        *Codec
 	remainedRows int
+	alloc ArenaAlloc
 }
 
 // NewDecoder creates a new Decoder object for decode a Chunk.
-func NewDecoder(chk *Chunk, colTypes []*types.FieldType) *Decoder {
-	return &Decoder{intermChk: chk, codec: NewCodec(colTypes), remainedRows: 0}
+func NewDecoder(chk *Chunk, colTypes []*types.FieldType, alloc ArenaAlloc) *Decoder {
+	return &Decoder{intermChk: chk, codec: NewCodec(colTypes), remainedRows: 0, alloc: alloc}
 }
 
 // Decode decodes multiple rows of Decoder.intermChk and stores the result in chk.
@@ -272,7 +299,7 @@ func (c *Decoder) Decode(chk *Chunk) {
 // Reset decodes data and store the result in Decoder.intermChk. This decode phase uses pointer operations with less
 // CPU and memory costs.
 func (c *Decoder) Reset(data []byte) {
-	c.codec.DecodeToChunk(data, c.intermChk)
+	c.codec.DecodeToChunkWithAlloc(data, c.intermChk, c.alloc)
 	c.remainedRows = c.intermChk.NumRows()
 }
 
