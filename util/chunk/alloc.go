@@ -24,7 +24,7 @@ import (
 	"github.com/pingcap/tidb/util/mathutil"
 	"github.com/pingcap/tidb/util/arena"
 //	"github.com/pingcap/tidb/metrics"
-	"gophers.dev/pkgs/offheap"
+//	"gophers.dev/pkgs/offheap"
 )
 
 type Alloc interface {
@@ -49,7 +49,16 @@ func (_ defaultArenaAlloc) AllocWithLen(length int, capacity int) []byte {
 func (_ defaultArenaAlloc) Reset() {
 }
 
+func (_ defaultArenaAlloc) Close() {
+}
+
+func (_ defaultArenaAlloc) Sub() ArenaAlloc {
+	return defaultArenaAlloc{}
+}
+
+
 type arenaAlloc struct {
+	parent *arenaAlloc
 	inuse []blockNode
 	freelist []blockNode
 	sync.Mutex
@@ -65,10 +74,21 @@ type blockNode struct {
 
 var _  arena.Allocator = &arenaAlloc{}
 
-type ArenaAlloc = arena.Allocator
+type ArenaAlloc interface {
+	 arena.Allocator
+	 Sub() ArenaAlloc
+	 Close()
+}
 
 func NewArenaAlloc() *arenaAlloc {
 	return &arenaAlloc{}
+}
+
+func (a *arenaAlloc) Sub() ArenaAlloc {
+	ret := &arenaAlloc{
+		parent: a,
+	}
+	return ret
 }
 
 func (a *arenaAlloc) Alloc(sz int) []byte {
@@ -109,12 +129,14 @@ func (a *arenaAlloc) newBlockNode() *blockNode {
 		a.inuse = append(a.inuse, v)
 		fmt.Println("new block node from freelist")
 	} else {
-		// data := new(block)
+		data := new(block)
+		/*
 		m, err := offheap.New(blockSize)
 		if err != nil {
 			panic(err)
 		}
 		data := (*block)(unsafe.Pointer(&m[0]))
+		*/
 		
 		a.inuse = append(a.inuse, blockNode{data: data})
 		fmt.Println("new block node allocate")
@@ -123,8 +145,10 @@ func (a *arenaAlloc) newBlockNode() *blockNode {
 }
 
 func (b *blockNode) Close() {
+/*
 	m := offheap.Memory((*b.data)[:])
 	m.Unmap()
+*/
 	fmt.Println("block node free...")
 }
 

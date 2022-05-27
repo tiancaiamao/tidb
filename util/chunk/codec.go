@@ -130,8 +130,8 @@ func (c *Codec) decodeColumnWithAlloc(buffer []byte, col *Column, ordinal int, a
 	// decode nullBitmap.
 	if nullCount > 0 {
 		numNullBitmapBytes := (col.length + 7) / 8
-		col.nullBitmap = buffer[:numNullBitmapBytes:numNullBitmapBytes]
-		// col.nullBitmap = append([]byte{}, buffer[:numNullBitmapBytes:numNullBitmapBytes]...)
+		// col.nullBitmap = buffer[:numNullBitmapBytes:numNullBitmapBytes]
+		col.nullBitmap = append([]byte{}, buffer[:numNullBitmapBytes:numNullBitmapBytes]...)
 		// col.nullBitmap = append(alloc.Alloc(numNullBitmapBytes), buffer[:numNullBitmapBytes:numNullBitmapBytes]...)
 		buffer = buffer[numNullBitmapBytes:]
 	} else {
@@ -143,8 +143,8 @@ func (c *Codec) decodeColumnWithAlloc(buffer []byte, col *Column, ordinal int, a
 	numDataBytes := int64(numFixedBytes * col.length)
 	if numFixedBytes == -1 {
 		numOffsetBytes := (col.length + 1) * 8
-		col.offsets = bytesToI64Slice(buffer[:numOffsetBytes:numOffsetBytes])
-		// col.offsets = append([]int64{}, bytesToI64Slice(buffer[:numOffsetBytes:numOffsetBytes])...)
+		// col.offsets = bytesToI64Slice(buffer[:numOffsetBytes:numOffsetBytes])
+		col.offsets = append([]int64{}, bytesToI64Slice(buffer[:numOffsetBytes:numOffsetBytes])...)
 		// tmp := alloc.Alloc(numOffsetBytes)
 		// tmp = append(tmp, buffer[:numOffsetBytes:numOffsetBytes]...)
 		// col.offsets = bytesToI64Slice(tmp)
@@ -155,16 +155,18 @@ func (c *Codec) decodeColumnWithAlloc(buffer []byte, col *Column, ordinal int, a
 	}
 
 	// decode data.
-	if alloc == nil {
-		col.data = buffer[:numDataBytes:numDataBytes]
-	} else {
+//	if alloc == nil {
+		// col.data = buffer[:numDataBytes:numDataBytes]
+		col.data = append([]byte{}, buffer[:numDataBytes:numDataBytes]...)
+/*	} else {
+		panic("should never thid branch")
 		tmp := alloc.Alloc(int(numDataBytes))
 		if cap(tmp) != int(numDataBytes) {
 			panic("what the fuck?!")
 		}
 		col.data = append(tmp, buffer[:numDataBytes:numDataBytes]...)
 	}
-	// col.data = buffer[:numDataBytes:numDataBytes]
+*/	// col.data = buffer[:numDataBytes:numDataBytes]
 	// col.data = append([]byte{}, buffer[:numDataBytes:numDataBytes]...)
 	// The column reference the data of the grpc response, the memory of the grpc message cannot be GCed if we reuse
 	// this column. Thus, we set `avoidReusing` to true.
@@ -282,6 +284,12 @@ func NewDecoder(chk *Chunk, colTypes []*types.FieldType, alloc ArenaAlloc) *Deco
 	return &Decoder{intermChk: chk, codec: NewCodec(colTypes), remainedRows: 0, alloc: alloc}
 }
 
+func (c *Decoder) Close() {
+	if c.alloc != nil {
+		c.alloc.Close()
+	}
+}
+
 // Decode decodes multiple rows of Decoder.intermChk and stores the result in chk.
 func (c *Decoder) Decode(chk *Chunk) {
 	requiredRows := chk.RequiredRows() - chk.NumRows()
@@ -299,7 +307,15 @@ func (c *Decoder) Decode(chk *Chunk) {
 // Reset decodes data and store the result in Decoder.intermChk. This decode phase uses pointer operations with less
 // CPU and memory costs.
 func (c *Decoder) Reset(data []byte) {
-	c.codec.DecodeToChunkWithAlloc(data, c.intermChk, c.alloc)
+	if c.alloc != nil {
+		c.alloc.Reset()
+	}
+	remain := c.codec.DecodeToChunk(data, c.intermChk)
+	if len(remain) > 0 {
+		panic("fuck????????")
+	}
+	
+//	c.codec.DecodeToChunkWithAlloc(data, c.intermChk, c.alloc)
 	c.remainedRows = c.intermChk.NumRows()
 }
 

@@ -146,7 +146,7 @@ expensive-threshold = 10000
 # File logging.
 [log.file]
 # Log file name.
-filename = "/home/genius/.tiup/data/T5QwfWY/tidb-0/tidb.log"
+filename = "/home/genius/.tiup/data/T6f4uTy/tidb-0/tidb.log"
 
 # Max log file size in MB (upper limit to 4096MB).
 max-size = 300
@@ -353,7 +353,7 @@ grpc-compression-type = "none"
 commit-timeout = "41s"
 
 # Max batch size in gRPC.
-max-batch-size = 128
+max-batch-size = 0
 # Overload threshold of TiKV.
 overload-threshold = 200
 # Max batch wait time in nanosecond to avoid waiting too long. 0 means disable this feature.

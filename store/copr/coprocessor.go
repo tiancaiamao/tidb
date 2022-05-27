@@ -40,6 +40,7 @@ import (
 	"github.com/pingcap/tidb/store/driver/options"
 	"github.com/pingcap/tidb/util/execdetails"
 	"github.com/pingcap/tidb/util/logutil"
+//	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/mathutil"
 	"github.com/pingcap/tidb/util/memory"
 	"github.com/pingcap/tidb/util/paging"
@@ -52,6 +53,7 @@ import (
 	"github.com/tikv/client-go/v2/txnkv/txnsnapshot"
 	"github.com/tikv/client-go/v2/util"
 	"go.uber.org/zap"
+//	"google.golang.org/grpc"
 )
 
 var coprCacheHistogramEvict = tidbmetrics.DistSQLCoprCacheHistogram.WithLabelValues("evict")
@@ -670,6 +672,17 @@ func (worker *copIteratorWorker) handleTask(ctx context.Context, task *copTask, 
 	}()
 	remainTasks := []*copTask{task}
 	backoffermap := make(map[uint64]*Backoffer)
+
+/*	
+	var alloc chunk.ArenaAlloc
+	if tmp := ctx.Value(grpc.CustomizedAllocator); tmp != nil {
+		if alloc1, ok := tmp.(chunk.ArenaAlloc); ok {
+			alloc = alloc1.Sub()
+			ctx = context.WithValue(ctx, grpc.CustomizedAllocator, alloc)
+			defer alloc.Close()
+		}
+	}
+*/
 	for len(remainTasks) > 0 {
 		curTask := remainTasks[0]
 		bo := chooseBackoffer(ctx, backoffermap, curTask, worker)
@@ -679,6 +692,13 @@ func (worker *copIteratorWorker) handleTask(ctx context.Context, task *copTask, 
 			worker.sendToRespCh(resp, respCh, true)
 			return
 		}
+
+/*		
+		if alloc != nil {
+			alloc.Reset()
+		}
+*/
+		
 		if worker.finished() {
 			break
 		}
@@ -761,6 +781,8 @@ func (worker *copIteratorWorker) handleTaskOnce(bo *Backoffer, task *copTask, ch
 	if len(worker.req.MatchStoreLabels) > 0 {
 		ops = append(ops, tikv.WithMatchLabels(worker.req.MatchStoreLabels))
 	}
+	
+	
 	resp, rpcCtx, storeAddr, err := worker.kvclient.SendReqCtx(bo.TiKVBackoffer(), req, task.region, tikv.ReadTimeoutMedium, getEndPointType(task.storeType), task.storeAddr, ops...)
 	err = derr.ToTiDBErr(err)
 	if err != nil {
@@ -785,7 +807,11 @@ func (worker *copIteratorWorker) handleTaskOnce(bo *Backoffer, task *copTask, ch
 	}
 
 	if worker.req.Paging {
-		return worker.handleCopPagingResult(bo, rpcCtx, &copResponse{pbResp: resp.Resp.(*coprocessor.Response)}, task, ch, costTime)
+		xx := resp.Resp.(*coprocessor.Response)
+//		if xx != nil && len(xx.Data) > 0 {
+//			fmt.Println("in handle task once ..., and object addr is ==", unsafe.Pointer(&xx.Data[0]))
+//		}
+		return worker.handleCopPagingResult(bo, rpcCtx, &copResponse{pbResp: xx}, task, ch, costTime)
 	}
 
 	// Handles the response for non-streaming copTask.

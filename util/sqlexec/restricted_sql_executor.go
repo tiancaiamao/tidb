@@ -23,7 +23,7 @@ import (
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/util/chunk"
-	"github.com/pingcap/tidb/util/arena"
+//	"github.com/pingcap/tidb/util/arena"
 )
 
 // RestrictedSQLExecutor is an interface provides executing restricted sql statement.
@@ -185,7 +185,7 @@ type RecordSet interface {
 	Next(ctx context.Context, req *chunk.Chunk) error
 
 	// NewChunk create a chunk, if allocator is nil, the default one is used.
-	NewChunk(arena.Allocator) *chunk.Chunk
+	NewChunk(chunk.ArenaAlloc) *chunk.Chunk
 
 	// Close closes the underlying iterator, call Next after Close will
 	// restart the iteration.

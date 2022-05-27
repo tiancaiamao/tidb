@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"unsafe"
 
+//	"google.golang.org/grpc"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/config"
@@ -105,6 +106,7 @@ func Select(ctx context.Context, sctx sessionctx.Context, kvReq *kv.Request, fie
 		ctx = SetTiFlashMaxThreadsInContext(ctx, sctx)
 	}
 
+//	ctx = context.WithValue(ctx, grpc.CustomizedAllocator, sctx.GetSessionVars().Alloc)
 	resp := sctx.GetClient().Send(ctx, kvReq, sctx.GetSessionVars().KVVars, option)
 	if resp == nil {
 		return nil, errors.New("client returns nil response")

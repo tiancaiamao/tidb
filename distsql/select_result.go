@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -47,6 +48,7 @@ import (
 	"github.com/tikv/client-go/v2/tikvrpc"
 	"go.uber.org/zap"
 	"golang.org/x/exp/maps"
+	"google.golang.org/grpc"
 )
 
 var (
@@ -200,6 +202,12 @@ func (r *selectResult) fetchResp(ctx context.Context) error {
 		}
 		if r.selectResp != nil {
 			r.memConsume(-atomic.LoadInt64(&r.selectRespSize))
+			if r.selectResp.Size() > (1<<20) {
+				ptr := unsafe.Add(unsafe.Pointer(&r.selectResp.Chunks[0].RowsData[0]), -19)
+				o := (*[2<<20]byte)(ptr)
+				grpc.Alloc.Put(o)
+//				fmt.Println(" put back object... when finish read from chunk, pointer address = ", ptr)
+			}
 		}
 		if resultSubset == nil {
 			r.selectResp = nil
@@ -316,21 +324,29 @@ func (r *selectResult) readFromDefault(ctx context.Context, chk *chunk.Chunk) er
 
 func (r *selectResult) readFromChunk(ctx context.Context, chk *chunk.Chunk) error {
 	if r.respChunkDecoder == nil {
+/*
 		alloc := r.ctx.GetSessionVars().Alloc
 		if alloc == nil {
 			fmt.Println("read from chunk, but alloc is NULL!!!!!!!!!")
+		} else {
+			alloc = alloc.Sub()	
 		}
+*/
 		r.respChunkDecoder = chunk.NewDecoder(
 			chunk.NewChunkWithCapacity(r.fieldTypes, 0),
 			r.fieldTypes,
-			alloc,
+			// alloc,
+			nil,
 		)
 	}
 
 	for !chk.IsFull() {
 		if r.respChkIdx == len(r.selectResp.Chunks) {
+			
 			err := r.fetchResp(ctx)
 			if err != nil || r.selectResp == nil {
+
+//				r.respChunkDecoder.Close()
 				return err
 			}
 		}

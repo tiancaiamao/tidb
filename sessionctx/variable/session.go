@@ -55,7 +55,7 @@ import (
 	"github.com/tikv/client-go/v2/oracle"
 	"github.com/twmb/murmur3"
 	atomic2 "go.uber.org/atomic"
-	"github.com/pingcap/tidb/util/arena"
+//	"github.com/pingcap/tidb/util/arena"
 )
 
 // PreparedStmtCount is exported for test.
@@ -1047,7 +1047,7 @@ type SessionVars struct {
 	// MaxAllowedPacket indicates the maximum size of a packet for the MySQL protocol.
 	MaxAllowedPacket uint64
 	
-	Alloc arena.Allocator
+	Alloc chunk.ArenaAlloc
 }
 
 // InitStatementContext initializes a StatementContext, the object is reused to reduce allocation.
