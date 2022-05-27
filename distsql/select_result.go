@@ -324,9 +324,9 @@ func (r *selectResult) readFromDefault(ctx context.Context, chk *chunk.Chunk) er
 
 func (r *selectResult) readFromChunk(ctx context.Context, chk *chunk.Chunk) error {
 	if r.respChunkDecoder == nil {
-/*
+
 		alloc := r.ctx.GetSessionVars().Alloc
-		if alloc == nil {
+/*		if alloc == nil {
 			fmt.Println("read from chunk, but alloc is NULL!!!!!!!!!")
 		} else {
 			alloc = alloc.Sub()	
@@ -335,8 +335,7 @@ func (r *selectResult) readFromChunk(ctx context.Context, chk *chunk.Chunk) erro
 		r.respChunkDecoder = chunk.NewDecoder(
 			chunk.NewChunkWithCapacity(r.fieldTypes, 0),
 			r.fieldTypes,
-			// alloc,
-			nil,
+			alloc,
 		)
 	}
 

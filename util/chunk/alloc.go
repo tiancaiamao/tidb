@@ -24,7 +24,7 @@ import (
 	"github.com/pingcap/tidb/util/mathutil"
 	"github.com/pingcap/tidb/util/arena"
 //	"github.com/pingcap/tidb/metrics"
-//	"gophers.dev/pkgs/offheap"
+	"gophers.dev/pkgs/offheap"
 )
 
 type Alloc interface {
@@ -129,14 +129,14 @@ func (a *arenaAlloc) newBlockNode() *blockNode {
 		a.inuse = append(a.inuse, v)
 		fmt.Println("new block node from freelist")
 	} else {
-		data := new(block)
-		/*
+//		data := new(block)
+
 		m, err := offheap.New(blockSize)
 		if err != nil {
 			panic(err)
 		}
 		data := (*block)(unsafe.Pointer(&m[0]))
-		*/
+
 		
 		a.inuse = append(a.inuse, blockNode{data: data})
 		fmt.Println("new block node allocate")
@@ -145,10 +145,10 @@ func (a *arenaAlloc) newBlockNode() *blockNode {
 }
 
 func (b *blockNode) Close() {
-/*
+
 	m := offheap.Memory((*b.data)[:])
 	m.Unmap()
-*/
+
 	fmt.Println("block node free...")
 }
 

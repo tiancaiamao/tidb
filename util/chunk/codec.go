@@ -155,18 +155,17 @@ func (c *Codec) decodeColumnWithAlloc(buffer []byte, col *Column, ordinal int, a
 	}
 
 	// decode data.
-//	if alloc == nil {
+	if alloc == nil {
 		// col.data = buffer[:numDataBytes:numDataBytes]
 		col.data = append([]byte{}, buffer[:numDataBytes:numDataBytes]...)
-/*	} else {
-		panic("should never thid branch")
+	} else {
 		tmp := alloc.Alloc(int(numDataBytes))
 		if cap(tmp) != int(numDataBytes) {
 			panic("what the fuck?!")
 		}
 		col.data = append(tmp, buffer[:numDataBytes:numDataBytes]...)
 	}
-*/	// col.data = buffer[:numDataBytes:numDataBytes]
+	// col.data = buffer[:numDataBytes:numDataBytes]
 	// col.data = append([]byte{}, buffer[:numDataBytes:numDataBytes]...)
 	// The column reference the data of the grpc response, the memory of the grpc message cannot be GCed if we reuse
 	// this column. Thus, we set `avoidReusing` to true.
@@ -286,7 +285,7 @@ func NewDecoder(chk *Chunk, colTypes []*types.FieldType, alloc ArenaAlloc) *Deco
 
 func (c *Decoder) Close() {
 	if c.alloc != nil {
-		c.alloc.Close()
+//		c.alloc.Close()
 	}
 }
 
@@ -307,15 +306,15 @@ func (c *Decoder) Decode(chk *Chunk) {
 // Reset decodes data and store the result in Decoder.intermChk. This decode phase uses pointer operations with less
 // CPU and memory costs.
 func (c *Decoder) Reset(data []byte) {
-	if c.alloc != nil {
-		c.alloc.Reset()
-	}
-	remain := c.codec.DecodeToChunk(data, c.intermChk)
+//	if c.alloc != nil {
+//		c.alloc.Reset()
+//	}
+//	remain := c.codec.DecodeToChunk(data, c.intermChk)
+	remain :=	c.codec.DecodeToChunkWithAlloc(data, c.intermChk, c.alloc)
 	if len(remain) > 0 {
 		panic("fuck????????")
 	}
 	
-//	c.codec.DecodeToChunkWithAlloc(data, c.intermChk, c.alloc)
 	c.remainedRows = c.intermChk.NumRows()
 }
 

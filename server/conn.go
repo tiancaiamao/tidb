@@ -2413,7 +2413,7 @@ func (cc *clientConn) handleResetConnection(ctx context.Context) error {
 		}
 	}
 	cc.ctx.SetSessionManager(cc.server)
-	
+
 	fmt.Println("!!!!! new connection !!!!  set alloc")
 	cc.ctx.GetSessionVars().Alloc = cc.chunkAlloc
 
