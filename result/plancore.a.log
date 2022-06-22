@@ -1,0 +1,47 @@
+tools/bin/ut run planner/core || { find $PWD/ -type d | grep -vE "(\.git|tools)" | xargs tools/bin/failpoint-ctl disable; exit 1; }
+building task finish, maxproc=1, count=580, takes=13.860165459s
+[FAIL]  planner/core TestListColumnsPartitionPruner
+[FAIL]  planner/core TestIssue20139
+[FAIL]  planner/core TestVerboseExplain
+docker kill tmp command fail exit status 1
+docker kill tmp command fail exit status 1
+docker kill tmp command fail exit status 1
+[FAIL]  planner/core TestJoinOrderHint4Subquery
+[FAIL]  planner/core TestPartitionPruningForInExpr
+docker kill tmp command fail exit status 1
+[FAIL]  planner/core TestNDVGroupCols
+[FAIL]  planner/core TestMultiColInExpression
+[FAIL]  planner/core TestCorrelatedEstimation
+[FAIL]  planner/core TestMPPShuffledJoin
+[FAIL]  planner/core TestAccessPathOnClusterIndex
+docker kill tmp command fail exit status 1
+[FAIL]  planner/core TestListPartitionPruner
+[FAIL]  planner/core TestPartitionExplain
+[FAIL]  planner/core TestPreferRangeScanForUnsignedIntHandle
+[FAIL]  planner/core TestHashPartitionPruner
+docker kill tmp command fail exit status 1
+[FAIL]  planner/core TestMPPOuterJoinBuildSideForShuffleJoin
+docker kill tmp command fail exit status 1
+[FAIL]  planner/core TestDNFCondSelectivityWithConst
+[FAIL]  planner/core TestIndexJoinUniqueCompositeIndex
+docker kill tmp command fail exit status 1
+[FAIL]  planner/core TestIndexJoinOnClusteredIndex
+docker kill tmp command fail exit status 1
+[FAIL]  planner/core TestPushLimitDownIndexLookUpReader
+[FAIL]  planner/core TestGroupConcatOrderby
+[FAIL]  planner/core TestMPPJoin
+[FAIL]  planner/core TestGroupNDVs
+[FAIL]  planner/core TestCopPaging
+docker kill tmp command fail exit status 1
+docker kill tmp command fail exit status 1
+docker kill tmp command fail exit status 1
+[FAIL]  planner/core TestListColVariousTypes
+[FAIL]  planner/core TestMPPJoinWithCanNotFoundColumnInSchemaColumnsError
+[FAIL]  planner/core TestLimitCrossEstimation
+docker kill tmp command fail exit status 1
+[FAIL]  planner/core TestPartitionPruningWithDateType
+[FAIL]  planner/core TestPushdownDistinctEnable
+docker kill tmp command fail exit status 1
+[FAIL]  planner/core TestIssue22635
+[FAIL]  planner/core TestPrepareCacheChangingParamType
+run all tasks takes 1h25m10.055140532s

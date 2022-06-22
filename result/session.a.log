@@ -1,0 +1,8 @@
+tools/bin/ut run session || { find $PWD/ -type d | grep -vE "(\.git|tools)" | xargs tools/bin/failpoint-ctl disable; exit 1; }
+building task finish, maxproc=1, count=85, takes=9.778265724s
+[FAIL]  session TestTableReaderChunk
+[FAIL]  session TestGlobalAndLocalTxn
+[FAIL]  session TestIndexLookUpReaderChunk
+[FAIL]  session TestNonTransactionalDeleteShardingOnVarchar
+[FAIL]  session TestNonTransactionalDeleteShardingOnInt
+run all tasks takes 17m30.097897565s

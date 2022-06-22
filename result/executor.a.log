@@ -1,0 +1,82 @@
+tools/bin/ut run executor || { find $PWD/ -type d | grep -vE "(\.git|tools)" | xargs tools/bin/failpoint-ctl disable; exit 1; }
+building task finish, maxproc=1, count=1016, takes=10.944452655s
+[FAIL]  executor TestHistoryRead
+[FAIL]  executor TestIndexNestedLoopHashJoin
+[FAIL]  executor TestResourceGroupTag
+[FAIL]  executor TestAggInDisk
+[FAIL]  executor TestStalenessTransactionSchemaVer
+[FAIL]  executor TestGlobalIndexDoubleRead
+[FAIL]  executor TestShowStatusSnapshot
+[FAIL]  executor TestForUpdateRetry
+[FAIL]  executor TestFix31038
+[FAIL]  executor TestRangePartitionBoundariesBetweenS
+[FAIL]  executor TestPreparePlanCache4Blacklist
+[FAIL]  executor TestInTxnExecDDLFail
+[FAIL]  executor TestShowPlacement
+[FAIL]  executor TestSplitRegionTimeout
+[FAIL]  executor TestExplainFor
+[FAIL]  executor TestPlanCacheClusterIndex
+[FAIL]  executor TestStaleSelect
+docker kill tmp command fail exit status 1
+[FAIL]  executor TestForSelectScopeInUnion
+[FAIL]  executor TestShowStatsBuckets
+[FAIL]  executor TestTxnWriteThroughputSLI
+[FAIL]  executor TestAdmin
+[FAIL]  executor TestRangePartitionBoundariesBetweenM
+[FAIL]  executor TestTemporaryTableNoNetwork
+[FAIL]  executor TestIndexMergeRuntimeStats
+[FAIL]  executor TestPBMemoryLeak
+docker kill tmp command fail exit status 1
+[FAIL]  executor TestInsertAutoInc
+[FAIL]  executor TestCompactTableInternalError
+[FAIL]  executor TestSetTransactionInfoSchema
+[FAIL]  executor TestPartitionTableExplain
+[FAIL]  executor TestPointGetPreparedPlanWithCommitMode
+[FAIL]  executor TestSPM4PlanCache
+[FAIL]  executor TestSavepointInPessimisticAndOptimistic
+[FAIL]  executor TestIssue20137
+docker kill tmp command fail exit status 1
+[FAIL]  executor TestSelectForUpdate
+[FAIL]  executor TestPointGetIssue25167
+[FAIL]  executor TestShowStatsHasNullValue
+[FAIL]  executor TestIndexLookupJoin
+[FAIL]  executor TestInvalidReadCacheTable
+[FAIL]  executor TestStaleReadKVRequest
+[FAIL]  executor TestShowStatsHistograms
+[FAIL]  executor TestHistoryReadInTxn
+[FAIL]  executor TestFourReader
+[FAIL]  executor TestExplainAnalyzeCTEMemoryAndDiskInfo
+[FAIL]  executor TestPreparePlanCache4DifferentSystemVars
+[FAIL]  executor TestCompactTableInProgress
+[FAIL]  executor TestSelectView4PlanCache
+[FAIL]  executor TestStaleSessionQuery
+[FAIL]  executor TestShowPlacementForTableAndPartition
+[FAIL]  executor TestForTableTiFlashReplica
+[FAIL]  executor TestShowPlacementForTableAndPartitionPrivilege
+[FAIL]  executor TestClusterIndexCBOPointGet
+[FAIL]  executor TestPointGetLockExistKey
+[FAIL]  executor TestPreparedNullParam
+[FAIL]  executor TestWriteListColumnsPartitionTable1
+docker kill tmp command fail exit status 1
+[FAIL]  executor TestOOMActionPriority
+[FAIL]  executor TestStalenessAndHistoryRead
+[FAIL]  executor TestTableSampleTemporaryTable
+[FAIL]  executor TestPointUpdatePreparedPlanWithCommitMode
+[FAIL]  executor TestGlobalIndexScan
+[FAIL]  executor TestCompactTableTooBusy
+[FAIL]  executor TestListColumnsPartitionWithGlobalIndex
+[FAIL]  executor TestShowPlacementPrivilege
+[FAIL]  executor TestShowPartitionStats
+[FAIL]  executor TestIssue30382
+[FAIL]  executor TestBatchPointGetIssue25167
+[FAIL]  executor TestAdminChecksumOfPartitionedTable
+[FAIL]  executor TestAlterTableAddColumns
+[FAIL]  executor TestShowPlacementForDBPrivilege
+[FAIL]  executor TestAdminShowDDLJobsInfo
+[FAIL]  executor TestDeferConstraintCheckForInsert
+[FAIL]  executor TestIssue28259
+[FAIL]  executor TestDynamicModeByDefault
+[FAIL]  executor TestIssue28696
+[FAIL]  executor TestIndexMerge4PlanCache
+[FAIL]  executor TestCheckFailReport
+run all tasks takes 2h49m34.212132044s
