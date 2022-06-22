@@ -15,13 +15,14 @@
 package core
 
 import (
+	"os"
 	"flag"
 	"testing"
 
 	"github.com/pingcap/tidb/testkit/testdata"
 	"github.com/pingcap/tidb/testkit/testmain"
 	"github.com/pingcap/tidb/testkit/testsetup"
-	"go.uber.org/goleak"
+	// "go.uber.org/goleak"
 )
 
 var testDataMap = make(testdata.BookKeeper)
@@ -52,18 +53,23 @@ func TestMain(m *testing.M) {
 	indexMergeSuiteData = testDataMap["index_merge_suite"]
 	planSuiteUnexportedData = testDataMap["plan_suite_unexported"]
 
-	opts := []goleak.Option{
-		goleak.IgnoreTopFunction("github.com/golang/glog.(*loggingT).flushDaemon"),
-		goleak.IgnoreTopFunction("go.etcd.io/etcd/client/pkg/v3/logutil.(*MergeLogger).outputLoop"),
-		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
-	}
+	// opts := []goleak.Option{
+	// 	goleak.IgnoreTopFunction("github.com/golang/glog.(*loggingT).flushDaemon"),
+	// 	goleak.IgnoreTopFunction("go.etcd.io/etcd/client/pkg/v3/logutil.(*MergeLogger).outputLoop"),
+	// 	goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
+	// }
 
 	callback := func(i int) int {
 		testDataMap.GenerateOutputIfNeeded()
 		return i
 	}
 
-	goleak.VerifyTestMain(testmain.WrapTestingM(m, callback), opts...)
+	// goleak.VerifyTestMain(testmain.WrapTestingM(m, callback), opts...)
+	m1 := testmain.WrapTestingM(m, callback)
+	exitCode := m1.Run()
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
 }
 
 func GetIntegrationPartitionSuiteData() testdata.TestData {

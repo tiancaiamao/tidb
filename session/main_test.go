@@ -15,6 +15,7 @@
 package session
 
 import (
+	"os"
 	"context"
 	"flag"
 	"fmt"
@@ -33,7 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tikv/client-go/v2/tikv"
 	"go.uber.org/atomic"
-	"go.uber.org/goleak"
+	// "go.uber.org/goleak"
 )
 
 var testDataMap = make(testdata.BookKeeper, 1)
@@ -52,27 +53,32 @@ func TestMain(m *testing.M) {
 		conf.TiKVClient.AsyncCommit.AllowedClockDrift = 0
 	})
 	tikv.EnableFailpoints()
-	opts := []goleak.Option{
-		// TODO: figure the reason and shorten this list
-		goleak.IgnoreTopFunction("github.com/golang/glog.(*loggingT).flushDaemon"),
-		goleak.IgnoreTopFunction("github.com/tikv/client-go/v2/internal/retry.newBackoffFn.func1"),
-		goleak.IgnoreTopFunction("go.etcd.io/etcd/client/v3.waitRetryBackoff"),
-		goleak.IgnoreTopFunction("go.etcd.io/etcd/client/pkg/v3/logutil.(*MergeLogger).outputLoop"),
-		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
-		goleak.IgnoreTopFunction("google.golang.org/grpc.(*addrConn).resetTransport"),
-		goleak.IgnoreTopFunction("google.golang.org/grpc.(*ccBalancerWrapper).watcher"),
-		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/transport.(*controlBuffer).get"),
-		goleak.IgnoreTopFunction("google.golang.org/grpc/internal/transport.(*http2Client).keepalive"),
-		goleak.IgnoreTopFunction("internal/poll.runtime_pollWait"),
-		goleak.IgnoreTopFunction("net/http.(*persistConn).writeLoop"),
-	}
+	// opts := []goleak.Option{
+	// 	// TODO: figure the reason and shorten this list
+	// 	goleak.IgnoreTopFunction("github.com/golang/glog.(*loggingT).flushDaemon"),
+	// 	goleak.IgnoreTopFunction("github.com/tikv/client-go/v2/internal/retry.newBackoffFn.func1"),
+	// 	goleak.IgnoreTopFunction("go.etcd.io/etcd/client/v3.waitRetryBackoff"),
+	// 	goleak.IgnoreTopFunction("go.etcd.io/etcd/client/pkg/v3/logutil.(*MergeLogger).outputLoop"),
+	// 	goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
+	// 	goleak.IgnoreTopFunction("google.golang.org/grpc.(*addrConn).resetTransport"),
+	// 	goleak.IgnoreTopFunction("google.golang.org/grpc.(*ccBalancerWrapper).watcher"),
+	// 	goleak.IgnoreTopFunction("google.golang.org/grpc/internal/transport.(*controlBuffer).get"),
+	// 	goleak.IgnoreTopFunction("google.golang.org/grpc/internal/transport.(*http2Client).keepalive"),
+	// 	goleak.IgnoreTopFunction("internal/poll.runtime_pollWait"),
+	// 	goleak.IgnoreTopFunction("net/http.(*persistConn).writeLoop"),
+	// }
 	callback := func(i int) int {
 		// wait for MVCCLevelDB to close, MVCCLevelDB will be closed in one second
 		time.Sleep(time.Second)
 		testDataMap.GenerateOutputIfNeeded()
 		return i
 	}
-	goleak.VerifyTestMain(testmain.WrapTestingM(m, callback), opts...)
+	// goleak.VerifyTestMain(testmain.WrapTestingM(m, callback), opts...)
+	m1 := testmain.WrapTestingM(m, callback)
+	exitCode := m1.Run()
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
 }
 
 func GetClusteredIndexSuiteData() testdata.TestData {
