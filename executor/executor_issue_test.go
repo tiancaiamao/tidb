@@ -1236,3 +1236,11 @@ func TestIssue33214(t *testing.T) {
 		}
 	}
 }
+
+func TestXXX(t *testing.T) {
+	store, clean := testkit.CreateMockStore(t)
+	defer clean()
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustQuery("select @@tidb_enable_paging;").Check(testkit.Rows("1"))
+}

@@ -15,6 +15,7 @@
 package executor_test
 
 import (
+	"os"
 	"fmt"
 	"testing"
 
@@ -25,7 +26,7 @@ import (
 	"github.com/pingcap/tidb/testkit/testmain"
 	"github.com/pingcap/tidb/testkit/testsetup"
 	"github.com/tikv/client-go/v2/tikv"
-	"go.uber.org/goleak"
+	// "go.uber.org/goleak"
 )
 
 var testDataMap = make(testdata.BookKeeper)
@@ -54,19 +55,24 @@ func TestMain(m *testing.M) {
 	})
 	tikv.EnableFailpoints()
 
-	opts := []goleak.Option{
-		goleak.IgnoreTopFunction("github.com/golang/glog.(*loggingT).flushDaemon"),
-		goleak.IgnoreTopFunction("go.etcd.io/etcd/client/pkg/v3/logutil.(*MergeLogger).outputLoop"),
-		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
-		goleak.IgnoreTopFunction("gopkg.in/natefinch/lumberjack%2ev2.(*Logger).millRun"),
-		goleak.IgnoreTopFunction("github.com/tikv/client-go/v2/txnkv/transaction.keepAlive"),
-	}
+	// opts := []goleak.Option{
+	// 	goleak.IgnoreTopFunction("github.com/golang/glog.(*loggingT).flushDaemon"),
+	// 	goleak.IgnoreTopFunction("go.etcd.io/etcd/client/pkg/v3/logutil.(*MergeLogger).outputLoop"),
+	// 	goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
+	// 	goleak.IgnoreTopFunction("gopkg.in/natefinch/lumberjack%2ev2.(*Logger).millRun"),
+	// 	goleak.IgnoreTopFunction("github.com/tikv/client-go/v2/txnkv/transaction.keepAlive"),
+	// }
 	callback := func(i int) int {
 		testDataMap.GenerateOutputIfNeeded()
 		return i
 	}
 
-	goleak.VerifyTestMain(testmain.WrapTestingM(m, callback), opts...)
+	// goleak.VerifyTestMain(testmain.WrapTestingM(m, callback), opts...)
+	m1 := testmain.WrapTestingM(m, callback)
+	exitCode := m1.Run()
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
 }
 
 func fillData(tk *testkit.TestKit, table string) {

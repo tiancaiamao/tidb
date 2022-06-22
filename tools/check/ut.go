@@ -295,10 +295,13 @@ func cmdRun(args ...string) bool {
 			fmt.Println("parse --only file error", err)
 			return false
 		}
+		fmt.Println("XXXXXXXXXXXXXXXXXXXXXX", list)
 		tmp := tasks[:0]
 		for _, task := range tasks {
 			if _, ok := list[task.String()]; ok {
 				tmp = append(tmp, task)
+			} else {
+				fmt.Println("ignore task ===", task)
 			}
 		}
 		tasks = tmp
@@ -438,7 +441,8 @@ func main() {
 	}
 
 	// Get the correct count of CPU if it's in docker.
-	P = runtime.GOMAXPROCS(0)
+	// P = runtime.GOMAXPROCS(0)
+	P = 1
 	rand.Seed(time.Now().Unix())
 	var err error
 	workDir, err = os.Getwd()
@@ -640,6 +644,7 @@ func filterTestCases(tasks []task, arg1 string) ([]task, error) {
 		tmp := tasks[:0]
 		for _, task := range tasks {
 			if r.MatchString(task.test) {
+				fmt.Println("!!! match ---", task.test, "with regex", arg1[2:])
 				tmp = append(tmp, task)
 			}
 		}
@@ -716,6 +721,24 @@ func (n *numa) runTestCase(pkg string, fn string) testResult {
 		// Combine the test case output, so the run result for failed cases can be displayed.
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
+		// cmd.Stdout = os.Stdout
+		// cmd.Stderr = os.Stderr
+
+
+		// ======================
+		// Start a real tikv using docker for testing
+		d := exec.Command("docker", "run", "--net", "host", "--rm", "--name", "tmp1", "tikv-img:bootstrap", "/start.sh")
+		err = d.Start()
+		if err != nil {
+			fmt.Println("docker start tikv failed!")
+			break
+		}
+		defer func() {
+			if err1 := exec.Command("docker", "kill", "tmp1").Run(); err1 != nil {
+				fmt.Println("docker kill tmp command fail", err1)
+			}
+		}()
+		// ======================
 
 		start = time.Now()
 		err = cmd.Run()
@@ -811,9 +834,11 @@ func (n *numa) testCommand(pkg string, fn string) *exec.Cmd {
 		// it takes a longer when race is enabled. so it is set more timeout value.
 		args = append(args, []string{"-test.timeout", "30m"}...)
 	}
-	// session.test -test.run TestClusteredPrefixColum
-	args = append(args, "-test.run", fn)
 
+	args = append(args, "-with-tikv", "127.0.0.1:2379")
+
+	// session.test -test.run TestClusteredPrefixColum
+	args = append(args, "-test.run", "^" + fn + "$")
 	return exec.Command(exe, args...)
 }
 
