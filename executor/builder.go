@@ -3927,9 +3927,13 @@ func (builder *dataReaderBuilder) buildTableReaderForIndexJoin(ctx context.Conte
 			if err != nil {
 				return nil, err
 			}
+			fmt.Println("================  is common handles")
 			return builder.buildTableReaderFromKvRanges(ctx, e, kvRanges)
 		}
+
+		fmt.Println("================  is not common handles")
 		handles, _ := dedupHandles(lookUpContents)
+		// !!!!!!!!!!!!!!!!!!!!  should keep order!!!
 		return builder.buildTableReaderFromHandles(ctx, e, handles, canReorderHandles)
 	}
 	tbl, _ := builder.is.TableByID(tbInfo.ID)

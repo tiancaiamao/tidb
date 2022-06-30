@@ -15,6 +15,7 @@
 package distsql
 
 import (
+	"fmt"
 	"context"
 	"strconv"
 	"unsafe"
@@ -94,6 +95,8 @@ func Select(ctx context.Context, sctx sessionctx.Context, kvReq *kv.Request, fie
 		EventCb:                    eventCb,
 		EnableCollectExecutionInfo: config.GetGlobalConfig().Instance.EnableCollectExecutionInfo,
 	}
+
+	fmt.Println("     lalalalalalala", config.GetGlobalConfig().Instance.EnableCollectExecutionInfo)
 
 	if kvReq.StoreType == kv.TiFlash {
 		ctx = SetTiFlashMaxThreadsInContext(ctx, sctx)

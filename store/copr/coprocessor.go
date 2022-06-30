@@ -15,6 +15,7 @@
 package copr
 
 import (
+	"runtime/debug"
 	"context"
 	"fmt"
 	"strconv"
@@ -428,6 +429,9 @@ func (worker *copIteratorWorker) run(ctx context.Context) {
 
 // open starts workers and sender goroutines.
 func (it *copIterator) open(ctx context.Context, enabledRateLimitAction, enableCollectExecutionInfo bool) {
+	if !enableCollectExecutionInfo  {
+		debug.PrintStack()
+	}
 	taskCh := make(chan *copTask, 1)
 	it.wg.Add(it.concurrency)
 	// Start it.concurrency number of workers to handle cop requests.
@@ -778,6 +782,8 @@ func (worker *copIteratorWorker) handleTaskOnce(bo *Backoffer, task *copTask, ch
 	storeID := strconv.FormatUint(req.Context.GetPeer().GetStoreId(), 10)
 	metrics.TiKVCoprocessorHistogram.WithLabelValues(storeID, strconv.FormatBool(staleRead)).Observe(costTime.Seconds())
 
+	fmt.Println("  !! send request range ==", copReq.Ranges)
+
 	if worker.req.Paging {
 		return worker.handleCopPagingResult(bo, rpcCtx, &copResponse{pbResp: resp.Resp.(*coprocessor.Response)}, cacheKey, cacheValue, task, ch, costTime)
 	}
@@ -864,6 +870,9 @@ func (worker *copIteratorWorker) handleCopPagingResult(bo *Backoffer, rpcCtx *ti
 		// So we finish here.
 		return nil, nil
 	}
+
+	fmt.Println(" !!paging === ", resp.pbResp.Range)
+
 	// calculate next ranges and grow the paging size
 	task.ranges = worker.calculateRemain(task.ranges, pagingRange, worker.req.Desc)
 	if task.ranges.Len() == 0 {
@@ -974,23 +983,27 @@ func (worker *copIteratorWorker) handleCopResponse(bo *Backoffer, rpcCtx *tikv.R
 	} else {
 		// Cache not hit or cache hit but not valid: update the cache if the response can be cached.
 		if cacheKey != nil && resp.pbResp.CanBeCached && resp.pbResp.CacheLastVersion > 0 {
-			if worker.store.coprCache.CheckResponseAdmission(resp.pbResp.Data.Size(), resp.detail.TimeDetail.ProcessTime) {
-				data := make([]byte, len(resp.pbResp.Data))
-				copy(data, resp.pbResp.Data)
+			// fmt.Println("resp==", resp.pbResp)
+			// fmt.Println("detail==", resp.detail)
+			if resp.detail != nil {
+				if worker.store.coprCache.CheckResponseAdmission(resp.pbResp.Data.Size(), resp.detail.TimeDetail.ProcessTime) {
+					data := make([]byte, len(resp.pbResp.Data))
+					copy(data, resp.pbResp.Data)
 
-				newCacheValue := coprCacheValue{
-					Data:              data,
-					TimeStamp:         worker.req.StartTs,
-					RegionID:          task.region.GetID(),
-					RegionDataVersion: resp.pbResp.CacheLastVersion,
-				}
-				// When paging protocol is used, the response key range is part of the cache data.
-				if r := resp.pbResp.GetRange(); r != nil {
-					newCacheValue.PageStart = append([]byte{}, r.GetStart()...)
-					newCacheValue.PageEnd = append([]byte{}, r.GetEnd()...)
-				}
+					newCacheValue := coprCacheValue{
+						Data:              data,
+						TimeStamp:         worker.req.StartTs,
+						RegionID:          task.region.GetID(),
+						RegionDataVersion: resp.pbResp.CacheLastVersion,
+					}
+					// When paging protocol is used, the response key range is part of the cache data.
+					if r := resp.pbResp.GetRange(); r != nil {
+						newCacheValue.PageStart = append([]byte{}, r.GetStart()...)
+						newCacheValue.PageEnd = append([]byte{}, r.GetEnd()...)
+					}
 
-				worker.store.coprCache.Set(cacheKey, &newCacheValue)
+					worker.store.coprCache.Set(cacheKey, &newCacheValue)
+				}
 			}
 		}
 	}
@@ -1002,6 +1015,7 @@ func (worker *copIteratorWorker) handleCollectExecutionInfo(bo *Backoffer, rpcCt
 	defer func() {
 		worker.kvclient.Stats = nil
 	}()
+	// fmt.Println("================in handle collect execution info ==", worker.enableCollectExecutionInfo)
 	if !worker.enableCollectExecutionInfo {
 		return
 	}

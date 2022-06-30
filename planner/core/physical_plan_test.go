@@ -1047,7 +1047,7 @@ func TestPushdownDistinctEnable(t *testing.T) {
 	planSuiteData.GetTestCases(t, &input, &output)
 	vars := []string{
 		fmt.Sprintf("set @@session.%s = 1", variable.TiDBOptDistinctAggPushDown),
-		"set session tidb_opt_agg_push_down = 1",
+		// "set session tidb_opt_agg_push_down = 1",
 	}
 	doTestPushdownDistinct(t, vars, input, output)
 }
