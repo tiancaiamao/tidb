@@ -39,6 +39,7 @@ import (
 	"github.com/pingcap/tidb/store/mockstore/unistore/tikv/kverrors"
 	"github.com/pingcap/tidb/store/mockstore/unistore/tikv/mvcc"
 	"github.com/pingcap/tidb/store/mockstore/unistore/util/lockwaiter"
+	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/rowcodec"
@@ -629,6 +630,146 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, req *kvrpcpb.PrewriteReques
 		}
 	}
 	return nil
+}
+
+func appendMutation(ret []*kvrpcpb.Mutation, op kvrpcpb.Op, k, v []byte) []*kvrpcpb.Mutation {
+	ret = append(ret, &kvrpcpb.Mutation{
+		Op: op,
+		Key: k,
+		Value: v,
+	})
+	return ret
+}
+
+func handleDiff(currKVs, oldKVs []*kvrpcpb.KvPair, ret []*kvrpcpb.Mutation) ([]*kvrpcpb.Mutation, error) {
+	var i, j int
+	for i < len(currKVs) && j < len(oldKVs) {
+		curr := currKVs[i]
+		old :=  oldKVs[j]
+		if curr.Error != nil {
+			return nil, errors.New(curr.Error.String())
+		}
+		if old.Error != nil {
+			return nil, errors.New(old.Error.String())
+		}
+		
+		cmp := bytes.Compare(curr.Key, old.Key)
+		switch {
+		case cmp > 0:
+			// old exist, recover the old value.
+			ret = appendMutation(ret, kvrpcpb.Op_Put, old.Key, old.Value)
+			j++
+		case cmp < 0:
+			// old not exist, delete the current value.
+			ret = appendMutation(ret, kvrpcpb.Op_Del, curr.Key, nil)
+			i++
+		default:	
+			// overwrite the old with the new.
+			ret = appendMutation(ret, kvrpcpb.Op_Put, old.Key, old.Value)
+			i++
+			j++
+		}
+	}
+	for ; i<len(currKVs); i++ {
+		ret = appendMutation(ret, kvrpcpb.Op_Del, currKVs[i].Key, nil)
+	}
+	for ; j<len(oldKVs); j++ {
+		ret = appendMutation(ret, kvrpcpb.Op_Put, oldKVs[j].Key, oldKVs[j].Value)
+	}
+	return ret, nil
+}
+
+func (store *MVCCStore) PITRPhase1(reqCtx *requestCtx, req *kvrpcpb.PITRPhase1, copReq *coprocessor.Request) error {
+	var mutations []*kvrpcpb.Mutation
+	for _, r := range copReq.Ranges {
+		// optimize here
+		scanReq1 := kvrpcpb.ScanRequest{
+			Context: copReq.Context,
+			StartKey: r.Start,
+			EndKey: r.End,
+			Limit: math.MaxUint32,
+			Version: req.StartVersion,
+		}
+		currentKV := store.Scan(reqCtx, &scanReq1)
+		reqCtx.reader = nil  // A workaround, fuck!
+		// fmt.Println("tmp1 ==", tmp1, "version:", req.StartVersion, reqCtx.isSnapshotIsolation())
+
+		scanReq2 := kvrpcpb.ScanRequest{
+			Context: copReq.Context,
+			StartKey: r.Start,
+			EndKey: r.End,
+			Limit: math.MaxUint32,
+			Version: req.Tso,
+		}
+		oldKV := store.Scan(reqCtx, &scanReq2)
+		// fmt.Println("tmp2 ==", tmp2, "version:", req.Tso, reqCtx.isSnapshotIsolation())
+
+		var err error
+		mutations, err = handleDiff(currentKV, oldKV, mutations)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, m := range mutations {
+		fmt.Println("mutations ==", *m)
+	}
+
+	// TODO: choose a primary key
+	prewriteReq := &kvrpcpb.PrewriteRequest{
+		Context: copReq.Context,
+		Mutations: mutations,
+		PrimaryLock: mutations[0].Key,
+		StartVersion: req.StartVersion,
+	}
+	return store.Prewrite(reqCtx, prewriteReq)
+}
+
+func (store *MVCCStore) PITRPhase2(reqCtx *requestCtx, req *kvrpcpb.PITRPhase2, copReq *coprocessor.Request) error {
+	fmt.Println(".....    PITRPhase2")
+	// var mutations []*kvrpcpb.Mutation
+	var keys [][]byte
+	for _, r := range copReq.Ranges {
+		// optimize here
+		scanReq1 := kvrpcpb.ScanRequest{
+			Context: copReq.Context,
+			StartKey: r.Start,
+			EndKey: r.End,
+			Limit: math.MaxUint32,
+			// Version: req.StartVersion,
+			Version: req.Tso,
+			KeyOnly: true,
+		}
+		currentKV := store.Scan(reqCtx, &scanReq1)
+		reqCtx.reader = nil  // A workaround, fuck!
+		fmt.Println("tmp1 ==", currentKV, "version:", req.StartVersion, reqCtx.isSnapshotIsolation())
+
+		for _, kv := range currentKV {
+			keys = append(keys, kv.Key)
+		}
+
+		// scanReq2 := kvrpcpb.ScanRequest{
+		// 	Context: copReq.Context,
+		// 	StartKey: r.Start,
+		// 	EndKey: r.End,
+		// 	Limit: math.MaxUint32,
+		// 	Version: req.Tso,
+		// 	KeyOnly: true,
+		// }
+		// oldKV := store.Scan(reqCtx, &scanReq2)
+		// fmt.Println("tmp2 ==", oldKV, "version:", req.Tso, reqCtx.isSnapshotIsolation())
+
+		// var err error
+		// mutations, err = handleDiff(currentKV, oldKV, mutations)
+		// if err != nil {
+		// 	fmt.Println("error happen here...", err)
+		// 	return err
+		// }
+	}
+
+	fmt.Println("=========== commit keys ==", keys)
+
+	return store.Commit(reqCtx, keys, req.StartVersion, req.CommitVersion)
 }
 
 func (store *MVCCStore) prewriteOptimistic(reqCtx *requestCtx, mutations []*kvrpcpb.Mutation, req *kvrpcpb.PrewriteRequest) error {
@@ -1660,6 +1801,7 @@ func (store *MVCCStore) Scan(reqCtx *requestCtx, req *kvrpcpb.ScanRequest) []*kv
 		err = reader.ReverseScan(startKey, endKey, int(limit), req.GetVersion(), scanProc)
 	} else {
 		err = reader.Scan(startKey, endKey, int(limit), req.GetVersion(), scanProc)
+		// fmt.Println("scan use version ???", req.GetVersion())
 	}
 	if err != nil {
 		scanProc.pairs = append(scanProc.pairs[:0], &kvrpcpb.KvPair{

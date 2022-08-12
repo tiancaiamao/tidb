@@ -58,6 +58,7 @@ var (
 	_ StmtNode = &HelpStmt{}
 	_ StmtNode = &PlanReplayerStmt{}
 	_ StmtNode = &CompactTableStmt{}
+	_ StmtNode = &PITRStmt{}
 
 	_ Node = &PrivElem{}
 	_ Node = &VariableAssignment{}
@@ -2787,6 +2788,33 @@ func (n *ShutdownStmt) Accept(v Visitor) (Node, bool) {
 		return v.Leave(newNode)
 	}
 	n = newNode.(*ShutdownStmt)
+	return v.Leave(n)
+}
+
+type PITRStmt struct {
+	stmtNode
+
+	Table *TableName
+	TSO string
+}
+
+// Restore implements Node interface.
+func (n *PITRStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("PITR")
+	ctx.WriteKeyWord(" TABLE ")
+	if err := n.Table.Restore(ctx); err != nil {
+		return errors.Annotate(err, "An error occurred while restore CreateStatisticsStmt.Table")
+	}
+	ctx.WriteString(n.TSO)
+	return nil
+}
+
+func (n *PITRStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*PITRStmt)
 	return v.Leave(n)
 }
 

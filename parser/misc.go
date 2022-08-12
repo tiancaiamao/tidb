@@ -535,6 +535,7 @@ var tokenMap = map[string]int{
 	"PER_DB":                   per_db,
 	"PER_TABLE":                per_table,
 	"PESSIMISTIC":              pessimistic,
+	"PITR":  pitr,
 	"PLACEMENT":                placement,
 	"PLAN":                     plan,
 	"PLAN_CACHE":               planCache,

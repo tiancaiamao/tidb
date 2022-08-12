@@ -24,6 +24,7 @@ import (
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/tidb/ddl/placement"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/infoschema"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/parser/mysql"
@@ -139,6 +140,25 @@ func (builder *RequestBuilder) SetPartitionsAndHandles(handles []kv.Handle) *Req
 }
 
 const estimatedRegionRowCount = 100000
+
+func (builder *RequestBuilder) SetPITRPhase1Request(data *kvrpcpb.PITRPhase1) *RequestBuilder {
+	if builder.err == nil {
+		builder.Request.Tp = kv.ReqTypePITRPhase1
+		fmt.Println("set request type to ReqTypePITRPhase1!!!")
+		builder.Request.Cacheable = false
+		builder.Request.Data, builder.err = data.Marshal()
+	}
+	return builder
+}
+
+func (builder *RequestBuilder) SetPITRPhase2Request(data *kvrpcpb.PITRPhase2) *RequestBuilder {
+	if builder.err == nil {
+		builder.Request.Tp = kv.ReqTypePITRPhase2
+		builder.Request.Cacheable = false
+		builder.Request.Data, builder.err = data.Marshal()
+	}
+	return builder
+}
 
 // SetDAGRequest sets the request type to "ReqTypeDAG" and construct request data.
 func (builder *RequestBuilder) SetDAGRequest(dag *tipb.DAGRequest) *RequestBuilder {

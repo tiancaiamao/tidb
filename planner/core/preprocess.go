@@ -326,6 +326,8 @@ func (p *preprocessor) Enter(in ast.Node) (out ast.Node, skipChildren bool) {
 			p.ctx.GetSessionVars().StmtCtx.IsStaleness = true
 			p.IsStaleness = true
 		}
+	case *ast.PITRStmt:
+		p.resolvePITRStmt(node)
 	default:
 		p.flag &= ^parentIsJoin
 	}
@@ -1543,6 +1545,13 @@ func (p *preprocessor) resolveShowStmt(node *ast.ShowStmt) {
 			node.User.AuthUsername = currentUser.AuthUsername
 			node.User.AuthHostname = currentUser.AuthHostname
 		}
+	}
+}
+
+func (p *preprocessor) resolvePITRStmt(node *ast.PITRStmt) {
+	if node.Table != nil && node.Table.Schema.L == "" {
+		dbName := p.ctx.GetSessionVars().CurrentDB
+		node.Table.Schema = model.NewCIStr(dbName)
 	}
 }
 

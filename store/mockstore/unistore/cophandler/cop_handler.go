@@ -114,6 +114,10 @@ func ExecutorListsToTree(exec []*tipb.Executor) *tipb.Executor {
 
 // handleCopDAGRequest handles coprocessor DAG request using MPP executors.
 func handleCopDAGRequest(dbReader *dbreader.DBReader, lockStore *lockstore.MemStore, req *coprocessor.Request) (resp *coprocessor.Response) {
+	// for _, r := range req.Ranges {
+	// 	fmt.Println("cop request range ==", r)
+	// }
+
 	startTime := time.Now()
 	resp = &coprocessor.Response{}
 	failpoint.Inject("mockCopCacheInUnistore", func(cacheVersion failpoint.Value) {

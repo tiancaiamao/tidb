@@ -6830,3 +6830,13 @@ func TestIntervalPartition(t *testing.T) {
 
 	RunTest(t, table, false)
 }
+
+
+
+func TestPiTRStmt(t *testing.T) {
+	table := []testCase{
+		{`PITR TABLE t '2022-03-05 12:35:47'`, true, "PiTR TABLE `t` '2022-03-05 12:35:47'"},
+	}
+
+	RunTest(t, table, false)
+}

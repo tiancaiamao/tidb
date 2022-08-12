@@ -122,7 +122,7 @@ format = "text"
 # enable-timestamp = true
 
 # Enable annotating logs with the full stack error message, if not set, it will be defaulted to false.
-# enable-error-stack = false
+enable-error-stack = true
 
 # Stores slow query log into separated files.
 slow-query-file = "tidb-slow.log"

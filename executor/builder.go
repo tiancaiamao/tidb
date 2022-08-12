@@ -30,6 +30,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/diagnosticspb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/tidb/config"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/ddl/placement"
 	"github.com/pingcap/tidb/distsql"
@@ -800,6 +801,8 @@ func (b *executorBuilder) buildSimple(v *plannercore.Simple) Executor {
 		return b.buildRevoke(s)
 	case *ast.BRIEStmt:
 		return b.buildBRIE(s, v.Schema())
+	case *ast.PITRStmt:
+		return b.buildPITR(s)
 	}
 	base := newBaseExecutor(b.ctx, v.Schema(), v.ID())
 	base.initCap = chunk.ZeroCapacity
@@ -5099,4 +5102,39 @@ func (b *executorBuilder) buildCompactTable(v *plannercore.CompactTable) Executo
 		tableInfo:    v.TableInfo,
 		tikvStore:    tikvStore,
 	}
+}
+
+func (b *executorBuilder) buildPITR(s *ast.PITRStmt) Executor {
+	// sessVars := b.ctx.GetSessionVars()
+	snapshotTS, err := strconv.ParseUint(s.TSO, 10, 64)
+	if err != nil {
+		snapshotTS, err = b.parseTSString(s.TSO)
+		if err != nil {
+			b.err = errors.Trace(err)
+			return nil
+		}
+	}
+
+	// schema, err := domain.GetDomain(b.ctx).GetSnapshotInfoSchema(snapshotTS)
+	schema := domain.GetDomain(b.ctx).InfoSchema()
+	// if err != nil {
+	// 	b.err = errors.Trace(err)
+	// 	return nil
+	// }
+
+	tbl, err := schema.TableByName(s.Table.Schema, s.Table.Name)
+	if err != nil {
+		b.err = errors.Trace(err)
+		return nil
+	}
+	tid := tbl.Meta().ID
+	startKey := tablecodec.EncodeTablePrefix(tid)
+	endKey := tablecodec.EncodeTablePrefix(tid+1)
+	e := &PITRExec {
+		baseExecutor: newBaseExecutor(b.ctx, nil, 0),
+			tso: snapshotTS,
+			startKey: startKey,
+			endKey: endKey,
+		}
+	return e
 }

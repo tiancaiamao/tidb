@@ -29,6 +29,7 @@
 package dbreader
 
 import (
+	// "fmt"
 	"bytes"
 	"math"
 
@@ -212,7 +213,11 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, proc
 	r.txn.SetReadTS(startTS)
 	if r.RcCheckTS {
 		r.txn.SetReadTS(math.MaxUint64)
+		// panic("!!!")
 	}
+
+	// fmt.Println("scan use ts ===", startTS)
+
 	skipValue := proc.SkipValue()
 	iter := r.GetIter()
 	var cnt int
@@ -223,6 +228,10 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, proc
 		if exceedEndKey(key, endKey) {
 			break
 		}
+
+		// fmt.Println("key ==", key, "item ==", item)
+
+
 		err = r.CheckWriteItemForRcCheckTSRead(startTS, item)
 		if err != nil {
 			return errors.Trace(err)

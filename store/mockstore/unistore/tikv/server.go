@@ -15,11 +15,13 @@
 package tikv
 
 import (
+	"fmt"
 	"context"
 	"io"
 	"sync/atomic"
 	"time"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	deadlockPb "github.com/pingcap/kvproto/pkg/deadlock"
@@ -352,6 +354,41 @@ func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest)
 	return resp, nil
 }
 
+func (svr *Server) PITRPhase1(ctx context.Context, req *kvrpcpb.PITRPhase1, copReq *coprocessor.Request) (*kvrpcpb.PrewriteResponse, error) {
+	fmt.Println("pitr phase1 req ==", copReq.Context)
+	reqCtx, err := newRequestCtx(svr, copReq.Context, "PITRPhase1")
+	if err != nil {
+		return &kvrpcpb.PrewriteResponse{Errors: []*kvrpcpb.KeyError{convertToKeyError(err)}}, nil
+	}
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.PrewriteResponse{RegionError: reqCtx.regErr}, nil
+	}
+	err = svr.mvccStore.PITRPhase1(reqCtx, req, copReq)
+	fmt.Println("pitr phase1 err ==", err)
+	resp := &kvrpcpb.PrewriteResponse{}
+	resp.Errors, resp.RegionError = convertToPBErrors(err)
+	resp.MinCommitTs = 42
+	return resp, nil
+}
+
+func (svr *Server) PITRPhase2(ctx context.Context, req *kvrpcpb.PITRPhase2, copReq *coprocessor.Request) (*kvrpcpb.CommitResponse, error) {
+	reqCtx, err := newRequestCtx(svr, copReq.Context, "PITRPhase2")
+	if err != nil {
+		return &kvrpcpb.CommitResponse{Error: convertToKeyError(err)}, nil
+	}
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.CommitResponse{RegionError: reqCtx.regErr}, nil
+	}
+	resp := new(kvrpcpb.CommitResponse)
+	err = svr.mvccStore.PITRPhase2(reqCtx, req, copReq)
+	if err != nil {
+		resp.Error, resp.RegionError = convertToPBError(err)
+	}
+	return resp, nil
+}
+
 // KvCommit implements implements the tikvpb.TikvServer interface.
 func (svr *Server) KvCommit(ctx context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
 	reqCtx, err := newRequestCtx(svr, req.Context, "KvCommit")
@@ -556,7 +593,7 @@ func (svr *Server) RawDeleteRange(context.Context, *kvrpcpb.RawDeleteRangeReques
 // SQL push down commands.
 
 // Coprocessor implements implements the tikvpb.TikvServer interface.
-func (svr *Server) Coprocessor(_ context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
+func (svr *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
 	reqCtx, err := newRequestCtx(svr, req.Context, "Coprocessor")
 	if err != nil {
 		return &coprocessor.Response{OtherError: convertToKeyError(err).String()}, nil
@@ -565,7 +602,60 @@ func (svr *Server) Coprocessor(_ context.Context, req *coprocessor.Request) (*co
 	if reqCtx.regErr != nil {
 		return &coprocessor.Response{RegionError: reqCtx.regErr}, nil
 	}
+
+	switch req.Tp {
+	case kv.ReqTypePITRPhase1:
+		return svr.handlePITR1(ctx, req)
+	case kv.ReqTypePITRPhase2:
+		return svr.handlePITR2(ctx, req)
+	default:
+		// fmt.Println("coprocess type == ", req.Tp)
+	}
+
 	return cophandler.HandleCopRequest(reqCtx.getDBReader(), svr.mvccStore.lockStore, req), nil
+}
+
+func (svr *Server) handlePITR1(ctx context.Context, copReq *coprocessor.Request) (*coprocessor.Response, error) {
+	var req kvrpcpb.PITRPhase1
+	err := proto.Unmarshal(copReq.Data, &req)
+	if err != nil {
+		return &coprocessor.Response{OtherError: err.Error()}, nil
+	}
+
+	fmt.Println("handle pitr1 ...", copReq.Ranges)
+
+	resp, err := svr.PITRPhase1(ctx, &req, copReq)
+	if err != nil {
+		fmt.Println("pitr phase1 error ... ", err)
+		return &coprocessor.Response{OtherError: err.Error()}, nil
+	}
+	fmt.Println("pitr phase1 resp ==", *resp)
+
+	data, err := resp.Marshal()
+	if err != nil {
+		return &coprocessor.Response{OtherError: err.Error()}, nil
+	}
+	fmt.Println("pitr cop resp data ==", data)
+	return &coprocessor.Response{Data: data}, nil
+}
+
+func (svr *Server) handlePITR2(ctx context.Context, copReq *coprocessor.Request) (*coprocessor.Response, error) {
+	var req kvrpcpb.PITRPhase2
+	err := proto.Unmarshal(copReq.Data, &req)
+	if err != nil {
+		return &coprocessor.Response{OtherError: err.Error()}, nil
+	}
+
+	resp, err := svr.PITRPhase2(ctx, &req, copReq)
+	if err != nil {
+		return &coprocessor.Response{OtherError: err.Error()}, nil
+	}
+
+	data, err := resp.Marshal()
+	if err != nil {
+		return &coprocessor.Response{OtherError: err.Error()}, nil
+	}
+	return &coprocessor.Response{Data: data}, nil
 }
 
 // CoprocessorStream implements implements the tikvpb.TikvServer interface.

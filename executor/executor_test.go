@@ -29,6 +29,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/pingcap/errors"
+	util1 "github.com/pingcap/tidb/ddl/util"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
@@ -5987,4 +5988,46 @@ func TestBinaryStrNumericOperator(t *testing.T) {
 		"-61.56"))
 	// there should be no warning.
 	tk.MustQuery("show warnings").Check(testkit.Rows())
+}
+
+
+func TestPITR(t *testing.T) {
+	// Disable emulator GC.
+	util1.EmulatorGCDisable()
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	// For mocktikv, safe point is not initialized, we manually insert it for snapshot to use.
+	safePointName := "tikv_gc_safe_point"
+	safePointValue := "20160102-15:04:05 -0700"
+	safePointComment := "All versions after safe point can be accessed. (DO NOT EDIT)"
+	updateSafePoint := fmt.Sprintf(`INSERT INTO mysql.tidb VALUES ('%[1]s', '%[2]s', '%[3]s')
+	ON DUPLICATE KEY
+	UPDATE variable_value = '%[2]s', comment = '%[3]s'`, safePointName, safePointValue, safePointComment)
+	tk.MustExec(updateSafePoint)
+	tk.MustExec("use test")
+	tk.MustExec("create table t(id int primary key, a int)")
+	tk.MustExec("insert into t values (1, 2)")
+	tk.MustExec("insert into t values (2, 3)")
+
+	time.Sleep(time.Second)
+
+	tk.MustExec("insert into t values (7, 8)")
+	now := time.Now()
+	time.Sleep(time.Second)
+
+	tk.MustExec("insert into t values (5, 6)")
+
+	fmt.Println("=====================================")
+
+	// tk.MustExec(fmt.Sprintf("set @@tidb_snapshot = '%s'", now.Format("2006-01-02 15:04:05")))
+
+	tk.MustQuery("select * from t").Check(testkit.Rows("1 2", "2 3", "5 6", "7 8"))
+
+
+	fmt.Println("---------------------------------------")
+
+	tk.MustExec(fmt.Sprintf("pitr table t '%s'", now.Format("2006-01-02 15:04:05.678")))
+	// tk.MustExec(fmt.Sprintf("pitr table t '2006-01-02 15:04:05'"))
+
+	tk.MustQuery("select * from t").Check(testkit.Rows("1 2", "2 3"))
 }

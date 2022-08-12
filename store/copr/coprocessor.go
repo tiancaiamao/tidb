@@ -111,6 +111,9 @@ func (c *CopClient) Send(ctx context.Context, req *kv.Request, variables interfa
 	bo := backoff.NewBackofferWithVars(ctx, copBuildTaskMaxBackoff, vars)
 	ranges := NewKeyRanges(req.KeyRanges)
 	tasks, err := buildCopTasks(bo, c.store.GetRegionCache(), ranges, req, eventCb)
+
+	// fmt.Println("build tasks ======", len(tasks), req.KeyRanges)
+
 	reqType := "null"
 	if req.ClosestReplicaReadAdjuster != nil {
 		reqType = "miss"

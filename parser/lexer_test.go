@@ -720,3 +720,21 @@ func TestFeatureIDs(t *testing.T) {
 		requires.Equalf(t, test.nextChar, nextChar, "input = %s", test.input)
 	}
 }
+
+func TestXXX(t *testing.T) {
+	s := NewScanner(`PiTR TABLE t '2022-03-05 12:35:47'`)
+	tok, pos, lit := s.scan()
+	fmt.Println(tok, pos, lit)
+
+	tok, pos, lit = s.scan()
+	fmt.Println(tok, pos, lit)
+
+	tok, pos, lit = s.scan()
+	fmt.Println(tok, pos, lit)
+
+	tok, pos, lit = s.scan()
+	fmt.Println(tok, pos, lit)
+
+	tok, pos, lit = s.scan()
+	fmt.Println(tok, pos, lit)
+}

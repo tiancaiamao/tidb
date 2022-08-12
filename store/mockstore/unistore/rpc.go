@@ -158,6 +158,15 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 				failpoint.Return(nil, undeterminedErr)
 			}
 		})
+
+	// case tikvrpc.CmdPITRPhase1:
+	// 	r := req.PITRPhase1()
+	// 	resp.Resp, err = c.usSvr.PITRPhase1(ctx, r)
+
+	// case tikvrpc.CmdPITRPhase2:
+	// 	r := req.PITRPhase2()
+	// 	resp.Resp, err = c.usSvr.PITRPhase2(ctx, r)
+		
 	case tikvrpc.CmdPessimisticLock:
 		r := req.PessimisticLock()
 		c.cluster.handleDelay(r.StartVersion, r.Context.RegionId)

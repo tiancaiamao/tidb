@@ -26,10 +26,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pingcap/tidb/distsql"
+	"github.com/golang/protobuf/proto"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/ddl/schematracker"
@@ -71,6 +73,7 @@ import (
 	tikvstore "github.com/tikv/client-go/v2/kv"
 	tikvutil "github.com/tikv/client-go/v2/util"
 	atomicutil "go.uber.org/atomic"
+	"github.com/tikv/client-go/v2/oracle"
 	"go.uber.org/zap"
 )
 
@@ -98,6 +101,7 @@ var (
 	_ Executor = &TableScanExec{}
 	_ Executor = &TopNExec{}
 	_ Executor = &UnionExec{}
+	_ Executor = &PITRExec{}
 
 	// GlobalMemoryUsageTracker is the ancestor of all the Executors' memory tracker and GlobalMemory Tracker
 	GlobalMemoryUsageTracker *memory.Tracker
@@ -2190,4 +2194,137 @@ func isWeakConsistencyRead(ctx sessionctx.Context, node ast.Node) bool {
 	sessionVars := ctx.GetSessionVars()
 	return sessionVars.ConnectionID > 0 && sessionVars.ReadConsistency.IsWeak() &&
 		plannercore.IsAutoCommitTxn(ctx) && plannercore.IsReadOnly(node, sessionVars)
+}
+
+type PITRExec struct {
+	baseExecutor
+
+	startKey []byte
+	endKey []byte
+	tso uint64
+}
+
+
+func (e *PITRExec) Next(ctx context.Context, req *chunk.Chunk) error {
+	fmt.Println("run here in PITRExec next()", e.tso)
+
+	txn, err := e.ctx.Txn(true)
+	if err != nil {
+		return err
+	}
+	startTS := txn.StartTS()
+	if err := e.phase1(ctx, startTS); err != nil {
+		return err
+	}
+
+	store := e.ctx.GetStore().GetOracle()
+	commitTS, err := store.GetTimestamp(ctx, &oracle.Option{})
+	if err != nil {
+		fmt.Println("err ==", err)
+		return errors.Trace(err)
+	}
+
+	if err := e.phase2(ctx, startTS, commitTS); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (e *PITRExec) phase1(ctx context.Context, startTS uint64) error {
+	var builder distsql.RequestBuilder
+	data := kvrpcpb.PITRPhase1{
+		StartVersion: startTS,
+		Tso: e.tso,
+	}
+	builder.SetPITRPhase1Request(&data)
+	builder.SetKeyRanges([]kv.KeyRange{
+		kv.KeyRange{
+			StartKey: e.startKey,
+			EndKey: e.endKey,
+		},
+	})
+
+	kvReq, err := builder.Build()
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	sctx := e.ctx
+	resp := sctx.GetClient().Send(ctx, kvReq, sctx.GetSessionVars().KVVars, &kv.ClientSendOption{})
+	if resp == nil {
+		return errors.New("client returns nil response")
+	}
+	defer resp.Close()
+
+	for i:=0; ; i++{
+		res, err := resp.Next(ctx)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if res != nil {
+			break
+		}
+		fmt.Println("!!data ==", res.GetData(), i)
+		if len(res.GetData()) == 0 {
+			continue
+		}
+		fmt.Println("??data == ", res.GetData())
+
+		var prewrite kvrpcpb.PrewriteResponse
+		err = proto.Unmarshal(res.GetData(), &prewrite)
+		if err != nil {
+			return errors.Trace(err)
+		}
+
+		// TODO handle prewrite response?
+	}
+	return nil
+}
+
+func (e *PITRExec) phase2(ctx context.Context, startTS, commitTS uint64) error {
+	fmt.Println("!!!!!!!!!!!!!!!!!!!    executor PITRPhase2")
+	var builder distsql.RequestBuilder
+	data := kvrpcpb.PITRPhase2{
+		StartVersion: startTS,
+		CommitVersion: commitTS,
+		Tso: e.tso,
+	}
+	builder.SetPITRPhase2Request(&data)
+	builder.SetKeyRanges([]kv.KeyRange{
+		kv.KeyRange{
+			StartKey: e.startKey,
+			EndKey: e.endKey,
+		},
+	})
+
+	kvReq, err := builder.Build()
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	sctx := e.ctx
+	resp := sctx.GetClient().Send(ctx, kvReq, sctx.GetSessionVars().KVVars, &kv.ClientSendOption{})
+	if resp == nil {
+		return errors.New("client returns nil response")
+	}
+	defer resp.Close()
+
+	for {
+		res, err := resp.Next(ctx)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if res == nil {
+			break
+		}
+		var prewrite kvrpcpb.PrewriteResponse
+		err = proto.Unmarshal(res.GetData(), &prewrite)
+		if err != nil {
+			return errors.Trace(err)
+		}
+
+		// TODO handle prewrite response?
+	}
+	return nil
 }

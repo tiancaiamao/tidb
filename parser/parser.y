@@ -668,6 +668,7 @@ import (
 	max                   "MAX"
 	now                   "NOW"
 	optRuleBlacklist      "OPT_RULE_BLACKLIST"
+        pitr                  "PITR"
 	placement             "PLACEMENT"
 	plan                  "PLAN"
 	planCache             "PLAN_CACHE"
@@ -910,6 +911,7 @@ import (
 	LoadStatsStmt              "Load statistic statement"
 	LockTablesStmt             "Lock tables statement"
 	NonTransactionalDeleteStmt "Non-transactional delete statement"
+	PITRStmt                   "PITR statement" 
 	PlanReplayerStmt           "Plan replayer statement"
 	PreparedStmt               "PreparedStmt"
 	PurgeImportStmt            "PURGE IMPORT statement that removes a IMPORT task record"
@@ -2600,6 +2602,15 @@ FlashbackToNewName:
 |	"TO" Identifier
 	{
 		$$ = $2
+	}
+
+PITRStmt:
+        "PITR" "TABLE" TableName stringLit
+	{
+	    $$ = &ast.PITRStmt{
+		Table: $3.(*ast.TableName),
+		TSO: $4,
+	    }
 	}
 
 /*******************************************************************
@@ -6385,6 +6396,7 @@ NotKeywordToken:
 |	"RECENT"
 |	"REPLAYER"
 |	"RUNNING"
+|       "PITR"
 |	"PLACEMENT"
 |	"PLAN"
 |	"PLAN_CACHE"
@@ -11308,6 +11320,7 @@ Statement:
 |	KillStmt
 |	LoadDataStmt
 |	LoadStatsStmt
+|       PITRStmt
 |	PlanReplayerStmt
 |	PreparedStmt
 |	PurgeImportStmt
