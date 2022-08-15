@@ -249,14 +249,26 @@ func (h *stateRemoteHandle) lockForWriteOnce(ctx context.Context, tid int64, lea
 
 			}
 		case CachedTableLockRead:
+			newLease := ts
+			if newLease < lease { // Never, never decrease lease
+				newLease = lease
+			}
+
 			// Change from READ to INTEND
 			if _, err = h.execSQL(ctx,
 				"update mysql.table_cache_meta set lock_type='INTEND', oldReadLease=%?, lease=%? where tid=%?",
 				lease,
-				ts,
+				newLease,
 				tid); err != nil {
 				return errors.Trace(err)
 			}
+
+			logutil.BgLogger().Info(">> change to intent",
+				zap.Int64("tid", tid),
+				zap.Uint64("now", now),
+				zap.Uint64("oldReadLease", oldReadLease),
+				zap.Uint64("oldLease", lease),
+				zap.Uint64("newLease", ts))
 
 			// Wait for lease to expire, and then retry.
 			waitAndRetry = waitForLeaseExpire(lease, now)
@@ -338,7 +350,7 @@ func waitForLeaseExpire(oldReadLease, now uint64) time.Duration {
 func (h *stateRemoteHandle) RenewReadLease(ctx context.Context, tid int64, oldLocalLease, newValue uint64) (uint64, error) {
 	var newLease uint64
 	err := h.runInTxn(ctx, false, func(ctx context.Context, now uint64) error {
-		lockType, remoteLease, _, err := h.loadRow(ctx, tid, false)
+		lockType, remoteLease, _, err := h.loadRow(ctx, tid, true)
 		if err != nil {
 			return errors.Trace(err)
 		}
