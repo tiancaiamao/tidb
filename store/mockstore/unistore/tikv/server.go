@@ -57,11 +57,15 @@ type Server struct {
 
 // NewServer returns a new server.
 func NewServer(rm RegionManager, store *MVCCStore, innerServer InnerServer) *Server {
-	return &Server{
+	srv := &Server{
 		mvccStore:     store,
 		regionManager: rm,
 		innerServer:   innerServer,
 	}
+	if enableQoS {
+		srv.enqueue = startQoS()
+	}
+	return srv
 }
 
 // Stop stops the server.
@@ -556,7 +560,22 @@ func (svr *Server) RawDeleteRange(context.Context, *kvrpcpb.RawDeleteRangeReques
 // SQL push down commands.
 
 // Coprocessor implements implements the tikvpb.TikvServer interface.
-func (svr *Server) Coprocessor(_ context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
+func (svr *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
+	if !enableQoS {
+		return coprocessor(ctx, req)
+	}
+
+	task := copReqTask{
+		Server:  svr,
+		Request: req.Cop(),
+	}
+	task.Add(1)
+	svr.enqueue <- task
+	task.Wait()
+	resp.Resp, err = task.Response, task.err
+}
+
+func (svr *Server) coprocessor(_ context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
 	reqCtx, err := newRequestCtx(svr, req.Context, "Coprocessor")
 	if err != nil {
 		return &coprocessor.Response{OtherError: convertToKeyError(err).String()}, nil
