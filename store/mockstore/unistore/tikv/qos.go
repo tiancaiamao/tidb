@@ -16,69 +16,64 @@ package tikv
 
 import (
 	"context"
-	"io"
-	"math"
-	"os"
-	"strconv"
-	"sync/atomic"
-	"time"
+	"fmt"
+	"sync"
+	"container/heap"
 
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 )
 
-// An Item is something we manage in a priority queue.
-type Item struct {
-	value    string // The value of the item; arbitrary.
-	priority int    // The priority of the item in the queue.
-	// The index is needed by update and is maintained by the heap.Interface methods.
-	index int // The index of the item in the heap.
+type PriorityQueue struct {
+	data []*copReqTask
+	size int
 }
 
-type PriorityQueue []copReqTask
-
-func (pq PriorityQueue) Len() int { return len(pq) }
-
-func (pq PriorityQueue) Less(i, j int) bool {
-	// We want Pop to give us the highest, not lowest, priority so we use greater than here.
-	return pq[i].Request.Priority > pq[j].Request.Priority
+func newPriorityQueue(size int) *PriorityQueue {
+	data := make([]*copReqTask, 0, size)
+	return &PriorityQueue{
+		data: data,
+		size: size,
+	}
 }
 
-func (pq PriorityQueue) Swap(i, j int) {
-	pq[i], pq[j] = pq[j], pq[i]
-	pq[i].index = i
-	pq[j].index = j
+func (pq *PriorityQueue) Len() int {
+	return len(pq.data)
+}
+
+func (pq *PriorityQueue) Less(i, j int) bool {
+	return pq.data[i].Request.Priority > pq.data[j].Request.Priority
+}
+
+func (pq *PriorityQueue) Swap(i, j int) {
+	pq.data[i], pq.data[j] = pq.data[j], pq.data[i]
 }
 
 func (pq *PriorityQueue) Push(x any) {
-	n := len(*pq)
-	item := x.(copReqTask)
-	item.index = n
-	*pq = append(*pq, item)
+	pq.data = append(pq.data, x.(*copReqTask))
 }
 
 func (pq *PriorityQueue) Pop() any {
-	old := *pq
-	n := len(old)
-	item := old[n-1]
-	// old[n-1] = nil  // avoid memory leak
-	item.index = -1 // for safety
-	*pq = old[0 : n-1 : cap(*pq)]
-	return item
+	n := len(pq.data)
+	ret := pq.data[n-1]
+	pq.data = pq.data[:n-1:cap(pq.data)]
+	return ret
+}
+
+func (pq *PriorityQueue) Enqueue(x *copReqTask) {
+	heap.Push(pq, x)
+}
+
+func (pq *PriorityQueue) Dequeue() *copReqTask {
+	x := heap.Pop(pq)
+	return x.(*copReqTask)
 }
 
 func (pq *PriorityQueue) Full() bool {
-	return len(*pq) == cap(*pq)
+	return len(pq.data) == pq.size
 }
 
 func (pq *PriorityQueue) Empty() bool {
-	return len(*pq) == 0
-}
-
-// update modifies the priority and value of an Item in the queue.
-func (pq *PriorityQueue) update(item *copReqTask, value string, priority int) {
-	item.value = value
-	item.priority = priority
-	heap.Fix(pq, item.index)
+	return len(pq.data) == 0
 }
 
 type copReqTask struct {
@@ -89,65 +84,91 @@ type copReqTask struct {
 	err      error
 
 	*Server
-	notify chan<- struct{}
-	index  int
+	// notify chan<- struct{}
+	// index  int
+}
+
+type FIFOQueue struct {
+	data []*copReqTask
+	start int
+	end int
+}
+
+func newFIFOQueue(size int) *FIFOQueue {
+	data := make([]*copReqTask, size)
+	return &FIFOQueue{
+		data: data,
+		start: 0,
+		end: 0,
+	}
+}
+
+func (fifo *FIFOQueue) Enqueue(x *copReqTask) {
+	fifo.data[fifo.start] = x
+	fifo.start = (fifo.start + 1) % len(fifo.data)
+}
+
+func (fifo *FIFOQueue) Dequeue() *copReqTask {
+	x := fifo.data[fifo.end]
+	fifo.end = (fifo.end + 1) % len(fifo.data)
+	return x
+}
+
+func (fifo *FIFOQueue) Full() bool {
+	return ((fifo.start + 1) % len(fifo.data)) == fifo.end
+}
+
+func (fifo *FIFOQueue) Empty() bool {
+	return fifo.start == fifo.end
+}
+
+type Queue interface {
+	Full() bool
+	Empty() bool
+	Enqueue(*copReqTask)
+	Dequeue() *copReqTask
 }
 
 // enqueue is the input channel, requests are send to this channel.
-// workerCh is a pool of workers, use <-workerCh to get a worker from it.
-// notify channel is used as a signal, to notify there are idle worker.
-func schedulerGoroutine(queue *PriorityQueue, enqueue chan copReqTask, wp workerPool) {
-	workerIdle := true
-	notify := make(chan struct{}, 1)
+// workerPool is a pool of workers, use <-pool to get a worker from it.
+func schedulerGoroutine(queue Queue, enqueue chan *copReqTask, pool workerPool) {
 	for {
 		if queue.Full() {
-			handleDispatch(queue, wp, notify)
+			worker := <-pool
+			task := queue.Dequeue()
+			worker.Run(task.execute)
+			fmt.Println("queue full...")
 			continue
 		}
 
 		// serve either enqueue or dispatch
 		select {
 		case req := <-enqueue:
-			queue.Push(req)
-			if workerIdle {
-				triggerDispatch(notify)
+			queue.Enqueue(req)
+		case worker := <-pool:
+			if queue.Empty() {
+				queue.Enqueue(<-enqueue)
+				pool <-worker
+			} else {
+				task := queue.Dequeue()
+				worker.Run(task.execute)
 			}
-		case <-notify:
-			workerIdle = handleDispatch(queue, wp, notify)
 		}
 	}
-}
-
-func triggerDispatch(notify chan struct{}) {
-	select {
-	case notify <- struct{}{}:
-	default:
-	}
-}
-
-// handleDispatch returns whether there is no more workers to handle the request.
-func handleDispatch(queue *PriorityQueue, pool workerPool, notify chan<- struct{}) bool {
-	for !queue.Empty() {
-		worker, succ := pool.Get()
-		if !succ {
-			return false
-		}
-		task := queue.Pop()
-		task.notify = notify
-		worker.Run(task.execute)
-	}
-	return true
 }
 
 func (task *copReqTask) execute() {
-	resp.Resp, err = task.Server.Coprocessor(ctx, task.Request)
+	resp, err := task.Server.handleCoprocessor(context.Background(), task.Request)
+	task.Response, task.err = resp, err
 	task.Done()
-	triggerDispatch(task.notify)
+
+	// fmt.Println("one task finish---")
 }
 
-func startQoS() chan copReqTask {
-	pq := make([]*coprocessor.Request, 0, 300)
-	enqueue := make(chan copReqTask, 10)
+func startQoS() chan *copReqTask {
+	// pq := newFIFOQueue(300)
+	pq := newPriorityQueue(300)
+	enqueue := make(chan *copReqTask, 10)
 	wp := newWorkerPool(8)
 	go schedulerGoroutine(pq, enqueue, wp)
 	return enqueue
@@ -155,32 +176,19 @@ func startQoS() chan copReqTask {
 
 const enableQoS = true
 
-type workerPool struct {
-	ch chan worker
-}
+type workerPool chan worker
 
 func newWorkerPool(n int) workerPool {
-	wp := workerPool{
-		ch: make(chan worker, n),
-	}
+	wp := make(chan worker, n)
 	for i := 0; i < n; i++ {
 		w := worker{
 			ch:         make(chan func()),
 			workerPool: wp,
 		}
 		go workerGoroutine(w)
-		wp.ch <- w
+		wp <- w
 	}
 	return wp
-}
-
-func (wp workerPool) Get() (w worker, succ bool) {
-	select {
-	case w = <-wp.ch:
-		return w, true
-	default:
-		return worker{}, false
-	}
 }
 
 type worker struct {
@@ -189,14 +197,15 @@ type worker struct {
 }
 
 func (w worker) Run(f func()) {
-	worker.ch <- f
+	w.ch <- f
 }
 
 // worker bind with a goroutine,
 func workerGoroutine(w worker) {
 	for f := range w.ch {
+		// fmt.Println("before fn exec")
 		f()
-
+		// fmt.Println("after fn exec")
 		// What's special about it is that the worker itself is put back to the pool,
 		// after handling one task.
 		w.workerPool <- w

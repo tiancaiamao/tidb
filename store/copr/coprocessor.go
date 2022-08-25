@@ -68,6 +68,8 @@ type CopClient struct {
 	kv.RequestTypeSupportedChecker
 	store           *Store
 	replicaReadSeed uint32
+	// The CopClient is per session, so we can maintain the priority here.
+	priority int64
 }
 
 // Send builds the request and gets the coprocessor iterator response.
@@ -171,7 +173,7 @@ func (c *CopClient) Send(ctx context.Context, req *kv.Request, variables interfa
 	}
 
 	ctx = context.WithValue(ctx, tikv.RPCCancellerCtxKey{}, it.rpcCancel)
-	it.open(ctx, enabledRateLimitAction, option.EnableCollectExecutionInfo)
+	it.open(ctx, enabledRateLimitAction, option.EnableCollectExecutionInfo, &c.priority)
 	return it
 }
 
@@ -351,6 +353,7 @@ type copIteratorWorker struct {
 	replicaReadSeed uint32
 
 	enableCollectExecutionInfo bool
+	priority *int64 // pointer to CopClient.priority
 }
 
 // copIteratorTaskSender sends tasks to taskCh then wait for the workers to exit.
@@ -455,7 +458,7 @@ func (worker *copIteratorWorker) run(ctx context.Context) {
 }
 
 // open starts workers and sender goroutines.
-func (it *copIterator) open(ctx context.Context, enabledRateLimitAction, enableCollectExecutionInfo bool) {
+func (it *copIterator) open(ctx context.Context, enabledRateLimitAction, enableCollectExecutionInfo bool, priority *int64) {
 	taskCh := make(chan *copTask, 1)
 	it.wg.Add(it.concurrency)
 	// Start it.concurrency number of workers to handle cop requests.
@@ -472,6 +475,7 @@ func (it *copIterator) open(ctx context.Context, enabledRateLimitAction, enableC
 			memTracker:                 it.memTracker,
 			replicaReadSeed:            it.replicaReadSeed,
 			enableCollectExecutionInfo: enableCollectExecutionInfo,
+			priority: priority,
 		}
 		go worker.run(ctx)
 	}
@@ -735,7 +739,13 @@ func (worker *copIteratorWorker) handleTaskOnce(bo *Backoffer, task *copTask, ch
 		Ranges:     task.ranges.ToPBRanges(),
 		SchemaVer:  worker.req.SchemaVar,
 		PagingSize: task.pagingSize,
+		Priority: atomic.LoadInt64(worker.priority),
 	}
+	atomic.AddInt64(worker.priority, 1)
+	fmt.Println("handle task once, set priority to ==", copReq.Priority,
+		"task id=", worker.req.TaskID,
+		"request group tagger=", worker.req.ResourceGroupTagger,
+		"request resource=", worker.req.RequestSource)
 
 	var cacheKey []byte
 	var cacheValue *coprCacheValue

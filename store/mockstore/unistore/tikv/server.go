@@ -19,6 +19,7 @@ import (
 	"io"
 	"sync/atomic"
 	"time"
+	"fmt"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
@@ -53,6 +54,8 @@ type Server struct {
 	RPCClient     client.Client
 	refCount      int32
 	stopped       int32
+
+	enqueue chan *copReqTask
 }
 
 // NewServer returns a new server.
@@ -562,20 +565,26 @@ func (svr *Server) RawDeleteRange(context.Context, *kvrpcpb.RawDeleteRangeReques
 // Coprocessor implements implements the tikvpb.TikvServer interface.
 func (svr *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
 	if !enableQoS {
-		return coprocessor(ctx, req)
+		return svr.handleCoprocessor(ctx, req)
 	}
 
-	task := copReqTask{
+
+	fmt.Println("enqueue a request, priority ==", req.Priority)
+
+	task := &copReqTask{
 		Server:  svr,
-		Request: req.Cop(),
+		Request: req,
 	}
 	task.Add(1)
 	svr.enqueue <- task
 	task.Wait()
-	resp.Resp, err = task.Response, task.err
+
+	// fmt.Println("Coprocessor req ...", req, task.Response, task.err)
+
+	return task.Response, task.err
 }
 
-func (svr *Server) coprocessor(_ context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
+func (svr *Server) handleCoprocessor(_ context.Context, req *coprocessor.Request) (*coprocessor.Response, error) {
 	reqCtx, err := newRequestCtx(svr, req.Context, "Coprocessor")
 	if err != nil {
 		return &coprocessor.Response{OtherError: convertToKeyError(err).String()}, nil
