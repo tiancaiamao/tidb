@@ -19,7 +19,7 @@ import (
 	"io"
 	"sync/atomic"
 	"time"
-	"fmt"
+	// "fmt"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
@@ -569,7 +569,7 @@ func (svr *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*
 	}
 
 
-	fmt.Println("enqueue a request, priority ==", req.Priority)
+	// fmt.Println("enqueue a request, priority ==", req.Priority)
 
 	task := &copReqTask{
 		Server:  svr,

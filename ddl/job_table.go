@@ -161,7 +161,7 @@ func (d *ddl) startDispatchLoop() {
 	if d.etcdCli != nil {
 		notifyDDLJobByEtcdCh = d.etcdCli.Watch(d.ctx, addingDDLJobConcurrent)
 	}
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(100 * time.Second)
 	defer ticker.Stop()
 	for {
 		if isChanClosed(d.ctx.Done()) {

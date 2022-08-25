@@ -69,7 +69,8 @@ type CopClient struct {
 	store           *Store
 	replicaReadSeed uint32
 	// The CopClient is per session, so we can maintain the priority here.
-	priority int64
+	priority uint64
+	id int
 }
 
 // Send builds the request and gets the coprocessor iterator response.
@@ -173,7 +174,7 @@ func (c *CopClient) Send(ctx context.Context, req *kv.Request, variables interfa
 	}
 
 	ctx = context.WithValue(ctx, tikv.RPCCancellerCtxKey{}, it.rpcCancel)
-	it.open(ctx, enabledRateLimitAction, option.EnableCollectExecutionInfo, &c.priority)
+	it.open(ctx, enabledRateLimitAction, option.EnableCollectExecutionInfo, &c.priority, c.id)
 	return it
 }
 
@@ -353,7 +354,8 @@ type copIteratorWorker struct {
 	replicaReadSeed uint32
 
 	enableCollectExecutionInfo bool
-	priority *int64 // pointer to CopClient.priority
+	priority *uint64 // pointer to CopClient.priority
+	clientID int
 }
 
 // copIteratorTaskSender sends tasks to taskCh then wait for the workers to exit.
@@ -458,7 +460,7 @@ func (worker *copIteratorWorker) run(ctx context.Context) {
 }
 
 // open starts workers and sender goroutines.
-func (it *copIterator) open(ctx context.Context, enabledRateLimitAction, enableCollectExecutionInfo bool, priority *int64) {
+func (it *copIterator) open(ctx context.Context, enabledRateLimitAction, enableCollectExecutionInfo bool, priority *uint64, id int) {
 	taskCh := make(chan *copTask, 1)
 	it.wg.Add(it.concurrency)
 	// Start it.concurrency number of workers to handle cop requests.
@@ -476,6 +478,7 @@ func (it *copIterator) open(ctx context.Context, enabledRateLimitAction, enableC
 			replicaReadSeed:            it.replicaReadSeed,
 			enableCollectExecutionInfo: enableCollectExecutionInfo,
 			priority: priority,
+			clientID: id,
 		}
 		go worker.run(ctx)
 	}
@@ -739,13 +742,17 @@ func (worker *copIteratorWorker) handleTaskOnce(bo *Backoffer, task *copTask, ch
 		Ranges:     task.ranges.ToPBRanges(),
 		SchemaVer:  worker.req.SchemaVar,
 		PagingSize: task.pagingSize,
-		Priority: atomic.LoadInt64(worker.priority),
+		Priority: mathutil.Max(atomic.LoadUint64(worker.priority), atomic.LoadUint64(&virtualTime)),
 	}
-	atomic.AddInt64(worker.priority, 1)
-	fmt.Println("handle task once, set priority to ==", copReq.Priority,
-		"task id=", worker.req.TaskID,
-		"request group tagger=", worker.req.ResourceGroupTagger,
-		"request resource=", worker.req.RequestSource)
+	atomic.AddUint64(worker.priority, 1)
+
+	// if !worker.req.RequestSource.RequestSourceInternal {
+	// 	fmt.Println("handle task once, set priority to ==", copReq.Priority,
+	// 		"client id=", worker.clientID,
+	// 		"task id=", worker.req.TaskID,
+	// 		// "request group tagger=", worker.req.ResourceGroupTagger,
+	// 		"request resource=", worker.req.RequestSource)
+	// }
 
 	var cacheKey []byte
 	var cacheValue *coprCacheValue
@@ -812,6 +819,11 @@ func (worker *copIteratorWorker) handleTaskOnce(bo *Backoffer, task *copTask, ch
 	task.storeAddr = storeAddr
 	costTime := time.Since(startTime)
 	copResp := resp.Resp.(*coprocessor.Response)
+
+	currVT := updateVirtualTime(&virtualTime, copResp.VirtualTime)
+	if currVT > atomic.LoadUint64(worker.priority) {
+		atomic.StoreUint64(worker.priority, currVT)
+	}
 
 	if costTime > minLogCopTaskTime {
 		worker.logTimeCopTask(costTime, task, bo, copResp)
@@ -1384,4 +1396,15 @@ func isolationLevelToPB(level kv.IsoLevel) kvrpcpb.IsolationLevel {
 	default:
 		return kvrpcpb.IsolationLevel_SI
 	}
+}
+
+var virtualTime uint64
+
+func updateVirtualTime(vt *uint64, val uint64) uint64 {
+	oldVal := atomic.LoadUint64(vt)
+	if val > oldVal {
+		atomic.StoreUint64(vt, val)
+		return val
+	}
+	return oldVal
 }

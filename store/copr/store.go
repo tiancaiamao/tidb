@@ -75,6 +75,7 @@ type Store struct {
 	*kvStore
 	coprCache       *coprCache
 	replicaReadSeed uint32
+	clientIdx int
 }
 
 // NewStore creates a new store instance.
@@ -104,9 +105,11 @@ func (s *Store) nextReplicaReadSeed() uint32 {
 
 // GetClient gets a client instance.
 func (s *Store) GetClient() kv.Client {
+	s.clientIdx++
 	return &CopClient{
 		store:           s,
 		replicaReadSeed: s.nextReplicaReadSeed(),
+		id: s.clientIdx,
 	}
 }
 

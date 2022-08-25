@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"container/heap"
 
 	"github.com/pingcap/kvproto/pkg/coprocessor"
@@ -131,7 +132,7 @@ type Queue interface {
 
 // enqueue is the input channel, requests are send to this channel.
 // workerPool is a pool of workers, use <-pool to get a worker from it.
-func schedulerGoroutine(queue Queue, enqueue chan *copReqTask, pool workerPool) {
+func schedulerGoroutine(queue Queue, enqueue chan *copReqTask, pool workerPool, vt *uint64) {
 	for {
 		if queue.Full() {
 			worker := <-pool
@@ -152,25 +153,33 @@ func schedulerGoroutine(queue Queue, enqueue chan *copReqTask, pool workerPool) 
 			} else {
 				task := queue.Dequeue()
 				worker.Run(task.execute)
+				updateVirtualTime(vt, task.Request.Priority)
 			}
 		}
 	}
 }
 
+func updateVirtualTime(vt *uint64, min uint64) {
+	if min > atomic.LoadUint64(vt) {
+		atomic.StoreUint64(vt, min)
+	}
+}
+
+var virtualTime uint64
+
 func (task *copReqTask) execute() {
 	resp, err := task.Server.handleCoprocessor(context.Background(), task.Request)
 	task.Response, task.err = resp, err
+	task.Response.VirtualTime = atomic.LoadUint64(&virtualTime)
 	task.Done()
-
-	// fmt.Println("one task finish---")
 }
 
 func startQoS() chan *copReqTask {
 	// pq := newFIFOQueue(300)
 	pq := newPriorityQueue(300)
 	enqueue := make(chan *copReqTask, 10)
-	wp := newWorkerPool(8)
-	go schedulerGoroutine(pq, enqueue, wp)
+	wp := newWorkerPool(1)
+	go schedulerGoroutine(pq, enqueue, wp, &virtualTime)
 	return enqueue
 }
 

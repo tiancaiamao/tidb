@@ -1485,9 +1485,9 @@ func (do *Domain) updateStatsWorker(ctx sessionctx.Context, owner owner.Manager)
 	defer util.Recover(metrics.LabelDomain, "updateStatsWorker", nil, false)
 	lease := do.statsLease
 	deltaUpdateTicker := time.NewTicker(20 * lease)
-	gcStatsTicker := time.NewTicker(100 * lease)
+	gcStatsTicker := time.NewTicker(10000 * lease)
 	dumpFeedbackTicker := time.NewTicker(200 * lease)
-	loadFeedbackTicker := time.NewTicker(5 * lease)
+	loadFeedbackTicker := time.NewTicker(50000 * lease)
 	dumpColStatsUsageTicker := time.NewTicker(100 * lease)
 	statsHandle := do.StatsHandle()
 	defer func() {
