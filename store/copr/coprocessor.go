@@ -742,10 +742,12 @@ func (worker *copIteratorWorker) handleTaskOnce(bo *Backoffer, task *copTask, ch
 		Ranges:     task.ranges.ToPBRanges(),
 		SchemaVer:  worker.req.SchemaVar,
 		PagingSize: task.pagingSize,
-		Priority: mathutil.Max(atomic.LoadUint64(worker.priority), atomic.LoadUint64(&virtualTime)),
+		// Priority: mathutil.Max(atomic.LoadUint64(worker.priority), atomic.LoadUint64(&virtualTime)),
+		Priority: atomic.LoadUint64(worker.priority),
 	}
 	atomic.AddUint64(worker.priority, 1)
 
+	worker.req.TaskID = uint64(worker.clientID)
 	// if !worker.req.RequestSource.RequestSourceInternal {
 	// 	fmt.Println("handle task once, set priority to ==", copReq.Priority,
 	// 		"client id=", worker.clientID,
@@ -821,9 +823,17 @@ func (worker *copIteratorWorker) handleTaskOnce(bo *Backoffer, task *copTask, ch
 	copResp := resp.Resp.(*coprocessor.Response)
 
 	currVT := updateVirtualTime(&virtualTime, copResp.VirtualTime)
-	if currVT > atomic.LoadUint64(worker.priority) {
-		atomic.StoreUint64(worker.priority, currVT)
-	}
+	// updateVirtualTime(&virtualTime, copResp.VirtualTime)
+	oldVal := atomic.LoadUint64(worker.priority)
+	oldVal += copResp.Cost
+
+	// Chase virtual time, but not exactly it.
+	// if oldVal < currVT {
+	// 	oldVal = oldVal + (currVT - oldVal) / 2
+	// }
+	// atomic.StoreUint64(worker.priority,  oldVal)
+
+	atomic.StoreUint64(worker.priority, mathutil.Max(currVT, oldVal))
 
 	if costTime > minLogCopTaskTime {
 		worker.logTimeCopTask(costTime, task, bo, copResp)

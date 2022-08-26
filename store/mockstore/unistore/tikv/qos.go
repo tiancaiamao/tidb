@@ -16,6 +16,7 @@ package tikv
 
 import (
 	"context"
+	"time"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -42,7 +43,7 @@ func (pq *PriorityQueue) Len() int {
 }
 
 func (pq *PriorityQueue) Less(i, j int) bool {
-	return pq.data[i].Request.Priority > pq.data[j].Request.Priority
+	return pq.data[i].Request.Priority < pq.data[j].Request.Priority
 }
 
 func (pq *PriorityQueue) Swap(i, j int) {
@@ -152,6 +153,8 @@ func schedulerGoroutine(queue Queue, enqueue chan *copReqTask, pool workerPool, 
 				pool <-worker
 			} else {
 				task := queue.Dequeue()
+				// fmt.Println("dequeue task ==", task.Request.Context.TaskId, "priority=", task.Request.Priority, "queue length=", queue.Len())
+				// fmt.Println("dequeue task ==", task.Request.Context.TaskId, "priority=", task.Request.Priority)
 				worker.Run(task.execute)
 				updateVirtualTime(vt, task.Request.Priority)
 			}
@@ -168,9 +171,12 @@ func updateVirtualTime(vt *uint64, min uint64) {
 var virtualTime uint64
 
 func (task *copReqTask) execute() {
+	start := time.Now()
 	resp, err := task.Server.handleCoprocessor(context.Background(), task.Request)
+	cost := time.Since(start) / time.Microsecond
 	task.Response, task.err = resp, err
 	task.Response.VirtualTime = atomic.LoadUint64(&virtualTime)
+	task.Response.Cost = uint64(cost)
 	task.Done()
 }
 
