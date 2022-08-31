@@ -9,6 +9,7 @@ require (
 	github.com/BurntSushi/toml v1.2.0
 	github.com/DATA-DOG/go-sqlmock v1.5.0
 	github.com/Jeffail/gabs/v2 v2.5.1
+	github.com/KimMachineGun/automemlimit v0.1.2
 	github.com/Shopify/sarama v1.29.0
 	github.com/aliyun/alibaba-cloud-sdk-go v1.61.1581
 	github.com/ashanbrown/makezero v1.1.1
@@ -48,6 +49,7 @@ require (
 	github.com/gostaticanalysis/forcetypeassert v0.1.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/iancoleman/strcase v0.2.0
+	github.com/jamiealquiza/tachymeter v2.0.0+incompatible
 	github.com/jedib0t/go-pretty/v6 v6.2.2
 	github.com/joho/sqltocsv v0.0.0-20210428211105-a6d6801d59df
 	github.com/kisielk/errcheck v1.6.1
@@ -62,7 +64,7 @@ require (
 	github.com/pingcap/errors v0.11.5-0.20211224045212-9687c2b0f87c
 	github.com/pingcap/failpoint v0.0.0-20220423142525-ae43b7f4e5c3
 	github.com/pingcap/fn v0.0.0-20200306044125-d5540d389059
-	github.com/pingcap/kvproto v0.0.0-20220804022843-f006036b1277
+	github.com/pingcap/kvproto v0.0.0-20220818023518-a0f02b6efcee
 	github.com/pingcap/log v1.1.0
 	github.com/pingcap/sysutil v0.0.0-20220114020952-ea68d2dbf5b4
 	github.com/pingcap/tidb/parser v0.0.0-20211011031125-9b13dc409c5e
@@ -122,7 +124,6 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v0.8.1 // indirect
 	github.com/DataDog/zstd v1.4.5 // indirect
 	github.com/HdrHistogram/hdrhistogram-go v1.1.2 // indirect
-	github.com/KimMachineGun/automemlimit v0.1.2 // indirect
 	github.com/VividCortex/ewma v1.1.1 // indirect
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d // indirect
 	github.com/apache/thrift v0.13.1-0.20201008052519-daf620915714 // indirect
@@ -247,3 +248,5 @@ replace (
 )
 
 replace github.com/pingcap/kvproto => ../kvproto
+
+replace github.com/tikv/client-go/v2 => ../../tikv/client-go

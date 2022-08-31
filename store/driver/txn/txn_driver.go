@@ -199,6 +199,8 @@ func (txn *tikvTxn) SetOption(opt int, val interface{}) {
 		txn.KVTxn.GetSnapshot().SetIsolationLevel(level)
 	case kv.Priority:
 		txn.KVTxn.SetPriority(getTiKVPriority(val.(int)))
+	case kv.QoS:
+		txn.KVTxn.SetQoS(val.(*uint64))
 	case kv.NotFillCache:
 		txn.KVTxn.GetSnapshot().SetNotFillCache(val.(bool))
 	case kv.Pessimistic:

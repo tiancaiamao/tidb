@@ -91,6 +91,7 @@ const (
 	RequestSourceType
 	// ReplicaReadAdjuster set the adjust function of cop requsts.
 	ReplicaReadAdjuster
+	QoS
 )
 
 // ReplicaReadType is the type of replica to read data from

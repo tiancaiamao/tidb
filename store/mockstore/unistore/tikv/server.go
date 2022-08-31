@@ -55,7 +55,8 @@ type Server struct {
 	refCount      int32
 	stopped       int32
 
-	enqueue chan *copReqTask
+	copQueue chan *copReqTask
+	txnQueue chan *txnReqTask
 }
 
 // NewServer returns a new server.
@@ -66,7 +67,7 @@ func NewServer(rm RegionManager, store *MVCCStore, innerServer InnerServer) *Ser
 		innerServer:   innerServer,
 	}
 	if enableQoS {
-		srv.enqueue = startQoS()
+		srv.startQoS()
 	}
 	return srv
 }
@@ -339,6 +340,27 @@ func (svr *Server) KvCheckSecondaryLocks(ctx context.Context, req *kvrpcpb.Check
 
 // KvPrewrite implements implements the tikvpb.TikvServer interface.
 func (svr *Server) KvPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
+	if !enableQoS {
+		return svr.handleKVPrewrite(ctx, req)
+	}
+
+
+	// fmt.Println("enqueue a request, priority ==", req.Priority)
+
+	task := &txnReqTask{
+		Server:  svr,
+		Request: req,
+	}
+	task.Add(1)
+	svr.txnQueue <- task
+	task.Wait()
+
+	// fmt.Println("Coprocessor req ...", req, task.Response, task.err)
+
+	return task.Response, task.err
+}
+
+func (svr *Server) handleKVPrewrite(ctx context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
 	reqCtx, err := newRequestCtx(svr, req.Context, "KvPrewrite")
 	if err != nil {
 		return &kvrpcpb.PrewriteResponse{Errors: []*kvrpcpb.KeyError{convertToKeyError(err)}}, nil
@@ -576,7 +598,7 @@ func (svr *Server) Coprocessor(ctx context.Context, req *coprocessor.Request) (*
 		Request: req,
 	}
 	task.Add(1)
-	svr.enqueue <- task
+	svr.copQueue <- task
 	task.Wait()
 
 	// fmt.Println("Coprocessor req ...", req, task.Response, task.err)

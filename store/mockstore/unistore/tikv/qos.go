@@ -23,58 +23,66 @@ import (
 	"container/heap"
 
 	"github.com/pingcap/kvproto/pkg/coprocessor"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 )
 
-type PriorityQueue struct {
-	data []*copReqTask
+type priorityQueueItem interface {
+	Runnable
+	GetPriority() uint64
+}
+
+type PriorityQueue[T priorityQueueItem] struct {
+	data []T
 	size int
 }
 
-func newPriorityQueue(size int) *PriorityQueue {
-	data := make([]*copReqTask, 0, size)
-	return &PriorityQueue{
+func newPriorityQueue[T priorityQueueItem](size int) *PriorityQueue[T] {
+	data := make([]T, 0, size)
+	return &PriorityQueue[T]{
 		data: data,
 		size: size,
 	}
 }
 
-func (pq *PriorityQueue) Len() int {
+type ptrcopReqTask = *copReqTask
+
+func (pq *PriorityQueue[priorityQueueItem]) Len() int {
 	return len(pq.data)
 }
 
-func (pq *PriorityQueue) Less(i, j int) bool {
-	return pq.data[i].Request.Priority < pq.data[j].Request.Priority
+func (pq *PriorityQueue[priorityQueueItem]) Less(i, j int) bool {
+	return pq.data[i].GetPriority() < pq.data[j].GetPriority()
 }
 
-func (pq *PriorityQueue) Swap(i, j int) {
+func (pq *PriorityQueue[priorityQueueItem]) Swap(i, j int) {
 	pq.data[i], pq.data[j] = pq.data[j], pq.data[i]
 }
 
-func (pq *PriorityQueue) Push(x any) {
-	pq.data = append(pq.data, x.(*copReqTask))
+func (pq *PriorityQueue[priorityQueueItem]) Push(x any) {
+	pq.data = append(pq.data, x.(priorityQueueItem))
 }
 
-func (pq *PriorityQueue) Pop() any {
+func (pq *PriorityQueue[priorityQueueItem]) Pop() any {
 	n := len(pq.data)
 	ret := pq.data[n-1]
 	pq.data = pq.data[:n-1:cap(pq.data)]
 	return ret
 }
 
-func (pq *PriorityQueue) Enqueue(x *copReqTask) {
+func (pq *PriorityQueue[priorityQueueItem]) Enqueue(x priorityQueueItem) {
 	heap.Push(pq, x)
 }
 
-func (pq *PriorityQueue) Dequeue() *copReqTask {
+func (pq *PriorityQueue[priorityQueueItem]) Dequeue() priorityQueueItem {
 	x := heap.Pop(pq)
-	return x.(*copReqTask)
+	return x.(priorityQueueItem)
 }
 
-func (pq *PriorityQueue) Full() bool {
+func (pq *PriorityQueue[priorityQueueItem]) Full() bool {
 	return len(pq.data) == pq.size
 }
 
-func (pq *PriorityQueue) Empty() bool {
+func (pq *PriorityQueue[priorityQueueItem]) Empty() bool {
 	return len(pq.data) == 0
 }
 
@@ -86,8 +94,34 @@ type copReqTask struct {
 	err      error
 
 	*Server
-	// notify chan<- struct{}
-	// index  int
+}
+
+func (x *copReqTask) GetPriority() uint64 {
+	return x.Request.Priority
+}
+
+type txnReqTask struct {
+	Request *kvrpcpb.PrewriteRequest
+
+	sync.WaitGroup
+	Response *kvrpcpb.PrewriteResponse
+	err      error
+
+	*Server
+}
+
+func (x *txnReqTask) GetPriority() uint64 {
+	return x.Request.Priority
+}
+
+func (task *txnReqTask) Run() {
+	start := time.Now()
+	resp, err := task.Server.handleKVPrewrite(context.Background(), task.Request)
+	cost := time.Since(start) / time.Microsecond
+	task.Response, task.err = resp, err
+	task.Response.VirtualTime = atomic.LoadUint64(&writeVirtualTime)
+	task.Response.Cost = uint64(cost)
+	task.Done()
 }
 
 type FIFOQueue struct {
@@ -124,21 +158,21 @@ func (fifo *FIFOQueue) Empty() bool {
 	return fifo.start == fifo.end
 }
 
-type Queue interface {
+type Queue[T any] interface {
 	Full() bool
 	Empty() bool
-	Enqueue(*copReqTask)
-	Dequeue() *copReqTask
+	Enqueue(T)
+	Dequeue() T
 }
 
 // enqueue is the input channel, requests are send to this channel.
 // workerPool is a pool of workers, use <-pool to get a worker from it.
-func schedulerGoroutine(queue Queue, enqueue chan *copReqTask, pool workerPool, vt *uint64) {
+func schedulerGoroutine[T priorityQueueItem](queue Queue[priorityQueueItem], enqueue chan T, pool workerPool, vt *uint64) {
 	for {
 		if queue.Full() {
 			worker := <-pool
 			task := queue.Dequeue()
-			worker.Run(task.execute)
+			worker.Run(task)
 			fmt.Println("queue full...")
 			continue
 		}
@@ -155,8 +189,8 @@ func schedulerGoroutine(queue Queue, enqueue chan *copReqTask, pool workerPool, 
 				task := queue.Dequeue()
 				// fmt.Println("dequeue task ==", task.Request.Context.TaskId, "priority=", task.Request.Priority, "queue length=", queue.Len())
 				// fmt.Println("dequeue task ==", task.Request.Context.TaskId, "priority=", task.Request.Priority)
-				worker.Run(task.execute)
-				updateVirtualTime(vt, task.Request.Priority)
+				worker.Run(task)
+				updateVirtualTime(vt, task.GetPriority())
 			}
 		}
 	}
@@ -168,24 +202,39 @@ func updateVirtualTime(vt *uint64, min uint64) {
 	}
 }
 
-var virtualTime uint64
+var readVirtualTime uint64
+var writeVirtualTime uint64
 
-func (task *copReqTask) execute() {
+func (task *copReqTask) Run() {
 	start := time.Now()
 	resp, err := task.Server.handleCoprocessor(context.Background(), task.Request)
 	cost := time.Since(start) / time.Microsecond
 	task.Response, task.err = resp, err
-	task.Response.VirtualTime = atomic.LoadUint64(&virtualTime)
+	task.Response.VirtualTime = atomic.LoadUint64(&readVirtualTime)
 	task.Response.Cost = uint64(cost)
 	task.Done()
 }
 
-func startQoS() chan *copReqTask {
+func (svr *Server) startQoS() {
+	svr.copQueue = copQueueInit()
+	svr.txnQueue = txnQueueInit()
+}
+
+func copQueueInit() chan *copReqTask {
 	// pq := newFIFOQueue(300)
-	pq := newPriorityQueue(300)
+	pq := newPriorityQueue[priorityQueueItem](300)
 	enqueue := make(chan *copReqTask, 10)
 	wp := newWorkerPool(1)
-	go schedulerGoroutine(pq, enqueue, wp, &virtualTime)
+	go schedulerGoroutine(pq, enqueue, wp, &readVirtualTime)
+	return enqueue
+}
+
+func txnQueueInit() chan *txnReqTask {
+	// pq := newFIFOQueue(300)
+	pq := newPriorityQueue[priorityQueueItem](300)
+	enqueue := make(chan *txnReqTask, 10)
+	wp := newWorkerPool(1)
+	go schedulerGoroutine(pq, enqueue, wp, &writeVirtualTime)
 	return enqueue
 }
 
@@ -197,7 +246,7 @@ func newWorkerPool(n int) workerPool {
 	wp := make(chan worker, n)
 	for i := 0; i < n; i++ {
 		w := worker{
-			ch:         make(chan func()),
+			ch:         make(chan Runnable),
 			workerPool: wp,
 		}
 		go workerGoroutine(w)
@@ -206,12 +255,16 @@ func newWorkerPool(n int) workerPool {
 	return wp
 }
 
+type Runnable interface {
+	Run()
+}
+
 type worker struct {
-	ch chan func()
+	ch chan Runnable
 	workerPool
 }
 
-func (w worker) Run(f func()) {
+func (w worker) Run(f Runnable) {
 	w.ch <- f
 }
 
@@ -219,7 +272,7 @@ func (w worker) Run(f func()) {
 func workerGoroutine(w worker) {
 	for f := range w.ch {
 		// fmt.Println("before fn exec")
-		f()
+		f.Run()
 		// fmt.Println("after fn exec")
 		// What's special about it is that the worker itself is put back to the pool,
 		// after handling one task.
