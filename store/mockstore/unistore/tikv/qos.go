@@ -29,6 +29,7 @@ import (
 type priorityQueueItem interface {
 	Runnable
 	GetPriority() uint64
+	GetTaskID() uint64
 }
 
 type PriorityQueue[T priorityQueueItem] struct {
@@ -100,6 +101,10 @@ func (x *copReqTask) GetPriority() uint64 {
 	return x.Request.Priority
 }
 
+func (x *copReqTask) GetTaskID() uint64 {
+	return x.Request.Context.TaskId
+}
+
 type txnReqTask struct {
 	Request *kvrpcpb.PrewriteRequest
 
@@ -114,6 +119,10 @@ func (x *txnReqTask) GetPriority() uint64 {
 	return x.Request.Priority
 }
 
+func (x *txnReqTask) GetTaskID() uint64 {
+	return x.Request.Context.TaskId
+}
+
 func (task *txnReqTask) Run() {
 	start := time.Now()
 	resp, err := task.Server.handleKVPrewrite(context.Background(), task.Request)
@@ -121,40 +130,45 @@ func (task *txnReqTask) Run() {
 	task.Response, task.err = resp, err
 	task.Response.VirtualTime = atomic.LoadUint64(&writeVirtualTime)
 	task.Response.Cost = uint64(cost)
+	// fmt.Println("run task takes ==", task.Response.Cost)
 	task.Done()
 }
 
-type FIFOQueue struct {
-	data []*copReqTask
+type FIFOQueue[T priorityQueueItem] struct {
+	data []T
 	start int
 	end int
 }
 
-func newFIFOQueue(size int) *FIFOQueue {
-	data := make([]*copReqTask, size)
-	return &FIFOQueue{
+func newFIFOQueue[T priorityQueueItem](size int) *FIFOQueue[T] {
+	data := make([]T, size)
+	return &FIFOQueue[T]{
 		data: data,
 		start: 0,
 		end: 0,
 	}
 }
 
-func (fifo *FIFOQueue) Enqueue(x *copReqTask) {
+func (fifo *FIFOQueue[priorityQueueItem]) Len() int {
+	return 0
+}
+
+func (fifo *FIFOQueue[priorityQueueItem]) Enqueue(x priorityQueueItem) {
 	fifo.data[fifo.start] = x
 	fifo.start = (fifo.start + 1) % len(fifo.data)
 }
 
-func (fifo *FIFOQueue) Dequeue() *copReqTask {
+func (fifo *FIFOQueue[priorityQueueItem]) Dequeue() priorityQueueItem {
 	x := fifo.data[fifo.end]
 	fifo.end = (fifo.end + 1) % len(fifo.data)
 	return x
 }
 
-func (fifo *FIFOQueue) Full() bool {
+func (fifo *FIFOQueue[priorityQueueItem]) Full() bool {
 	return ((fifo.start + 1) % len(fifo.data)) == fifo.end
 }
 
-func (fifo *FIFOQueue) Empty() bool {
+func (fifo *FIFOQueue[priorityQueueItem]) Empty() bool {
 	return fifo.start == fifo.end
 }
 
@@ -163,6 +177,7 @@ type Queue[T any] interface {
 	Empty() bool
 	Enqueue(T)
 	Dequeue() T
+	Len() int
 }
 
 // enqueue is the input channel, requests are send to this channel.
@@ -188,7 +203,7 @@ func schedulerGoroutine[T priorityQueueItem](queue Queue[priorityQueueItem], enq
 			} else {
 				task := queue.Dequeue()
 				// fmt.Println("dequeue task ==", task.Request.Context.TaskId, "priority=", task.Request.Priority, "queue length=", queue.Len())
-				// fmt.Println("dequeue task ==", task.Request.Context.TaskId, "priority=", task.Request.Priority)
+				// fmt.Println("dequeue task=", task.GetTaskID(), " priority=", task.GetPriority(), "queue len=", queue.Len())
 				worker.Run(task)
 				updateVirtualTime(vt, task.GetPriority())
 			}
@@ -212,6 +227,7 @@ func (task *copReqTask) Run() {
 	task.Response, task.err = resp, err
 	task.Response.VirtualTime = atomic.LoadUint64(&readVirtualTime)
 	task.Response.Cost = uint64(cost)
+	// fmt.Println("the cop task takes ==", task.Response.Cost)
 	task.Done()
 }
 
@@ -224,13 +240,13 @@ func copQueueInit() chan *copReqTask {
 	// pq := newFIFOQueue(300)
 	pq := newPriorityQueue[priorityQueueItem](300)
 	enqueue := make(chan *copReqTask, 10)
-	wp := newWorkerPool(1)
+	wp := newWorkerPool(2)
 	go schedulerGoroutine(pq, enqueue, wp, &readVirtualTime)
 	return enqueue
 }
 
 func txnQueueInit() chan *txnReqTask {
-	// pq := newFIFOQueue(300)
+	// pq := newFIFOQueue[priorityQueueItem](300)
 	pq := newPriorityQueue[priorityQueueItem](300)
 	enqueue := make(chan *txnReqTask, 10)
 	wp := newWorkerPool(1)
@@ -238,6 +254,7 @@ func txnQueueInit() chan *txnReqTask {
 	return enqueue
 }
 
+// const enableQoS = false
 const enableQoS = true
 
 type workerPool chan worker

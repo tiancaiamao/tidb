@@ -200,8 +200,6 @@ type TxnCtxNoNeedToRestore struct {
 	// TemporaryTables is used to store transaction-specific information for global temporary tables.
 	// It can also be stored in sessionCtx with local temporary tables, but it's easier to clean this data after transaction ends.
 	TemporaryTables map[int64]tableutil.TempTable
-
-	QoS uint64
 }
 
 // SavepointRecord indicates a transaction's savepoint record.
@@ -1232,6 +1230,8 @@ type SessionVars struct {
 
 	// GeneralPlanCacheSize controls the size of general plan cache.
 	GeneralPlanCacheSize uint64
+
+	QoS uint64
 }
 
 // GetPreparedStmtByName returns the prepared statement specified by stmtName.

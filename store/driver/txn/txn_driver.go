@@ -200,6 +200,7 @@ func (txn *tikvTxn) SetOption(opt int, val interface{}) {
 	case kv.Priority:
 		txn.KVTxn.SetPriority(getTiKVPriority(val.(int)))
 	case kv.QoS:
+		// fmt.Println("txn driver... set qos!!", val)
 		txn.KVTxn.SetQoS(val.(*uint64))
 	case kv.NotFillCache:
 		txn.KVTxn.GetSnapshot().SetNotFillCache(val.(bool))

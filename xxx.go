@@ -187,7 +187,7 @@ func main() {
 			_, err = conn.ExecContext(context.Background(), "use sbtest")
 			assert(err)
 
-			stmt, err := conn.PrepareContext(context.Background(), `select * from sbtest5 where id > ? and id < ?`)
+			stmt, err := conn.PrepareContext(context.Background(), `select * from sbtest4 where id > ? and id < ?`)
 			assert(err)
 
 			for {

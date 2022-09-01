@@ -46,7 +46,6 @@ import (
 	"time"
 	"unsafe"
 
-	_ "github.com/KimMachineGun/automemlimit"
 	"github.com/blacktear23/go-proxyprotocol"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/config"
