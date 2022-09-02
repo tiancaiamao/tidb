@@ -237,19 +237,20 @@ func (svr *Server) startQoS() {
 }
 
 func copQueueInit() chan *copReqTask {
-	// pq := newFIFOQueue(300)
+	// pq := newFIFOQueue[priorityQueueItem](300)
 	pq := newPriorityQueue[priorityQueueItem](300)
 	enqueue := make(chan *copReqTask, 10)
-	wp := newWorkerPool(2)
+	wp := newWorkerPool(10)
+	// wp := newWorkerPool(3)
 	go schedulerGoroutine(pq, enqueue, wp, &readVirtualTime)
 	return enqueue
 }
 
 func txnQueueInit() chan *txnReqTask {
-	// pq := newFIFOQueue[priorityQueueItem](300)
-	pq := newPriorityQueue[priorityQueueItem](300)
+	pq := newFIFOQueue[priorityQueueItem](300)
+	// pq := newPriorityQueue[priorityQueueItem](300)
 	enqueue := make(chan *txnReqTask, 10)
-	wp := newWorkerPool(1)
+	wp := newWorkerPool(4)
 	go schedulerGoroutine(pq, enqueue, wp, &writeVirtualTime)
 	return enqueue
 }

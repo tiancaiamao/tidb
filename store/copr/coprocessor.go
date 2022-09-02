@@ -828,12 +828,12 @@ func (worker *copIteratorWorker) handleTaskOnce(bo *Backoffer, task *copTask, ch
 	oldVal += copResp.Cost
 
 	// Chase virtual time, but not exactly it.
-	// if oldVal < currVT {
-	// 	oldVal = oldVal + (currVT - oldVal) / 2
-	// }
-	// atomic.StoreUint64(worker.priority,  oldVal)
+	if oldVal < currVT {
+		oldVal = oldVal + (currVT - oldVal) / 2
+	}
+	atomic.StoreUint64(worker.priority,  oldVal)
 
-	atomic.StoreUint64(worker.priority, mathutil.Max(currVT, oldVal))
+	// atomic.StoreUint64(worker.priority, mathutil.Max(currVT, oldVal))
 
 	if costTime > minLogCopTaskTime {
 		worker.logTimeCopTask(costTime, task, bo, copResp)
