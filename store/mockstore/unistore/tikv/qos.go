@@ -203,7 +203,7 @@ func schedulerGoroutine[T priorityQueueItem](queue Queue[priorityQueueItem], enq
 			} else {
 				task := queue.Dequeue()
 				// fmt.Println("dequeue task ==", task.Request.Context.TaskId, "priority=", task.Request.Priority, "queue length=", queue.Len())
-				// fmt.Println("dequeue task=", task.GetTaskID(), " priority=", task.GetPriority(), "queue len=", queue.Len())
+				fmt.Println("dequeue task=", task.GetTaskID(), " priority=", task.GetPriority(), "queue len=", queue.Len())
 				worker.Run(task)
 				updateVirtualTime(vt, task.GetPriority())
 			}
@@ -247,10 +247,11 @@ func copQueueInit() chan *copReqTask {
 }
 
 func txnQueueInit() chan *txnReqTask {
-	pq := newFIFOQueue[priorityQueueItem](300)
-	// pq := newPriorityQueue[priorityQueueItem](300)
+	// pq := newFIFOQueue[priorityQueueItem](300)
+	pq := newPriorityQueue[priorityQueueItem](300)
 	enqueue := make(chan *txnReqTask, 10)
-	wp := newWorkerPool(4)
+	wp := newWorkerPool(2)
+	// wp := newWorkerPool(1)
 	go schedulerGoroutine(pq, enqueue, wp, &writeVirtualTime)
 	return enqueue
 }

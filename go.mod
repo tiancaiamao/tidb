@@ -243,6 +243,6 @@ replace (
 	github.com/pingcap/tidb/parser => ./parser
 )
 
-replace github.com/tikv/client-go/v2 => ../../tikv/client-go
+replace github.com/pingcap/kvproto => github.com/pingcap/kvproto v0.0.0-20220902070518-cd98e2346c74
 
-replace github.com/pingcap/kvproto => ../kvproto
+replace github.com/tikv/client-go/v2 => github.com/tiancaiamao/client-go/v2 v2.0.0-alpha.0.20220902070636-eda1f1ccbe08
