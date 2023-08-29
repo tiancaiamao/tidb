@@ -34,6 +34,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/config"
+	"github.com/pingcap/tidb/autoid_service"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/domain/infosync"
@@ -1141,13 +1142,14 @@ func (h DDLHistoryJobHandler) getHistoryDDL(jobID, limit int) (jobs []*model.Job
 }
 
 func (h DDLResignOwnerHandler) resignDDLOwner() error {
-	dom, err := session.GetDomain(h.store)
-	if err != nil {
-		return errors.Trace(err)
-	}
+	// dom, err := session.GetDomain(h.store)
+	// if err != nil {
+	// 	return errors.Trace(err)
+	// }
 
-	ownerMgr := dom.DDL().OwnerManager()
-	err = ownerMgr.ResignOwner(context.Background())
+	// ownerMgr := dom.DDL().OwnerManager()
+	ownerMgr := autoid.GetOwner()
+	err := ownerMgr.ResignOwner(context.Background())
 	if err != nil {
 		return errors.Trace(err)
 	}

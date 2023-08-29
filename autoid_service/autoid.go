@@ -252,6 +252,13 @@ type Service struct {
 	store      kv.Storage
 }
 
+
+var ownerMgr owner.Manager
+
+func GetOwner() owner.Manager {
+	return ownerMgr
+}
+
 // New return a Service instance.
 func New(selfAddr string, etcdAddr []string, store kv.Storage, tlsConfig *tls.Config) *Service {
 	cfg := config.GetGlobalConfig()
@@ -282,6 +289,8 @@ func New(selfAddr string, etcdAddr []string, store kv.Storage, tlsConfig *tls.Co
 
 func newWithCli(selfAddr string, cli *clientv3.Client, store kv.Storage) *Service {
 	l := owner.NewOwnerManager(context.Background(), cli, "autoid", selfAddr, autoIDLeaderPath)
+	ownerMgr = l
+	
 	err := l.CampaignOwner()
 	if err != nil {
 		panic(err)
