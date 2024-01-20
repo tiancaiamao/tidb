@@ -25,10 +25,16 @@ import (
 	"time"
 
 	"github.com/pingcap/failpoint"
+	"go.uber.org/zap"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
+	"github.com/pingcap/tidb/pkg/store/driver"
+	"google.golang.org/grpc"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/pingcap/tidb/pkg/meta/autoid"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/domain"
+	"github.com/pingcap/tidb/pkg/store"
 	"github.com/pingcap/tidb/pkg/expression"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -1046,4 +1052,60 @@ insert into test.t values ("abc"); -- invalid statement
 	require.Equal(t, 0, req.NumRows())
 	require.NoError(t, r.Close())
 	dom.Close()
+}
+
+type requirement struct {
+	kv.Storage
+	*autoid.ClientDiscover
+}
+
+func (r *requirement)	Store() kv.Storage {
+	return r.Storage
+}
+func (r *requirement)	AutoIDClient() *autoid.ClientDiscover {
+	return r.ClientDiscover
+}
+
+func TestXXX(t *testing.T) {
+	etcdLogCfg := zap.NewProductionConfig()
+	etcdLogCfg.Level = zap.NewAtomicLevelAt(zap.ErrorLevel)
+	etcdCli, err := clientv3.New(clientv3.Config{
+		LogConfig:        &etcdLogCfg,
+		Endpoints:        []string{"127.0.0.1:2379"},
+		AutoSyncInterval: 30 * time.Second,
+		DialTimeout:      5 * time.Second,
+		DialOptions: []grpc.DialOption{
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+	err = store.Register("tikv", driver.TiKVDriver{})
+	if err != nil {
+		panic(err)
+	}
+	sto, err := store.New("tikv://127.0.0.1:2379")
+	if err != nil {
+		panic(err)
+	}
+
+	var qps uint64
+	clidisc := autoid.NewClientDiscover(etcdCli)
+	for i:=0; i<7000; i++ {
+		go func() {
+			sp := autoid.NewSinglePointAlloc(&requirement{sto, clidisc}, 2, 102, false)
+			for {
+				_, _, err := sp.Alloc(context.Background(), 1, 1, 1)
+				if err != nil {
+					panic(err)
+				}
+				atomic.AddUint64(&qps, 1)
+			}
+		}()
+	}
+	for {
+		time.Sleep(time.Second)
+		fmt.Println("==== qps ====", atomic.LoadUint64(&qps))
+		atomic.StoreUint64(&qps, 0)
+	}
 }

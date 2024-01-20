@@ -565,6 +565,10 @@ func NextStep(curStep int64, consumeDur time.Duration) int64 {
 // package circle depending issue.
 var MockForTest func(kv.Storage) autoid.AutoIDAllocClient
 
+func NewSinglePointAlloc(r Requirement, dbID, tblID int64, isUnsigned bool) *singlePointAlloc {
+	return newSinglePointAlloc(r , dbID, tblID , isUnsigned)
+}
+
 func newSinglePointAlloc(r Requirement, dbID, tblID int64, isUnsigned bool) *singlePointAlloc {
 	keyspaceID := uint32(r.Store().GetCodec().GetKeyspaceID())
 	spa := &singlePointAlloc{

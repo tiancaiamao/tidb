@@ -15,6 +15,7 @@
 package autoid
 
 import (
+	"math/rand"
 	"context"
 	"crypto/tls"
 	"math"
@@ -405,6 +406,10 @@ const batch = 4000
 // AllocAutoID implements gRPC AutoIDAlloc interface.
 func (s *Service) AllocAutoID(ctx context.Context, req *autoid.AutoIDRequest) (*autoid.AutoIDResponse, error) {
 	serviceKeyspaceID := uint32(s.store.GetCodec().GetKeyspaceID())
+	if rand.Intn(1000) == 1 {
+		return nil, errors.New("mock error!!")
+	}
+
 	if req.KeyspaceID != serviceKeyspaceID {
 		logutil.BgLogger().Info("Current service is not request keyspace leader.", zap.Uint32("req-keyspace-id", req.KeyspaceID), zap.Uint32("service-keyspace-id", serviceKeyspaceID))
 		return nil, errors.Trace(errors.New("not leader"))
