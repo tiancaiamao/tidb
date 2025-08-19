@@ -382,7 +382,8 @@ func (p *UserPrivileges) MatchIdentity(ctx context.Context, user, host string, s
 	}
 	if err := p.Handle.ensureActiveUser(ctx, user); err != nil {
 		logutil.BgLogger().Error("ensure user data fail",
-			zap.String("user", user))
+			zap.String("user", user),
+			zap.Error(err))
 	}
 	mysqlPriv := p.Handle.Get()
 	record := mysqlPriv.matchIdentity(user, host, skipNameResolve)

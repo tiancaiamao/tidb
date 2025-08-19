@@ -2222,7 +2222,7 @@ func (h *Handle) updateUsers(userList []string) error {
 	userAndRoles := findUserAndAllRoles(userList, p.roleGraph)
 	err = p.loadSomeUsers(exec, userAndRoles)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	h.merge(p, userAndRoles)
 	return nil
