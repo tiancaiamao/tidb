@@ -15,6 +15,7 @@
 package executor
 
 import (
+	// "encoding/hex"
 	"bytes"
 	"context"
 	"fmt"
@@ -741,12 +742,41 @@ func (a *ExecStmt) handleForeignKeyTrigger(ctx context.Context, e exec.Executor,
 		return nil
 	}
 	fkChecks := exec.GetFKChecks()
+	
+	// Lock keys only once when finished fetching all results.
+	txn, err := a.Ctx.Txn(true)
+	if err != nil {
+		return err
+	}
+	var toBeLockedKeys []kv.Key
 	for _, fkCheck := range fkChecks {
-		err := fkCheck.doCheck(ctx)
+		toBeLockedKeys, err = fkCheck.doCheck(ctx, toBeLockedKeys)
 		if err != nil {
 			return err
 		}
 	}
+
+	sessVars := a.Ctx.GetSessionVars()
+	lockCtx, err := newLockCtx(a.Ctx, sessVars.LockWaitTimeout, len(toBeLockedKeys))
+	if err != nil {
+		return err
+	}
+	// WARN: Since tidb current doesn't support `LOCK IN SHARE MODE`, therefore, performance will be very poor in concurrency cases.
+	// TODO(crazycs520):After TiDB support `LOCK IN SHARE MODE`, use `LOCK IN SHARE MODE` here.
+	forUpdate := atomic.LoadUint32(&sessVars.TxnCtx.ForUpdate)
+
+	ctx = context.WithValue(ctx, "fk", true)
+	// fmt.Println("--- set filter -", len(toBeLockedKeys))
+	// for _, key := range toBeLockedKeys {
+	// 	fmt.Println("111", hex.EncodeToString(key))
+	// }
+
+	doLockKeys(ctx, a.Ctx, lockCtx, toBeLockedKeys...)
+	// doLockKeys may set TxnCtx.ForUpdate to 1, then if the lock meet write conflict, TiDB can't retry for update.
+	// So reset TxnCtx.ForUpdate to 0 then can be retry if meet write conflict.
+	atomic.StoreUint32(&sessVars.TxnCtx.ForUpdate, forUpdate)
+	txn.SetOption(kv.KVFilter, hackFilter{toBeLockedKeys})
+
 	fkCascades := exec.GetFKCascades()
 	for _, fkCascade := range fkCascades {
 		err := a.handleForeignKeyCascade(ctx, fkCascade, depth)

@@ -18,11 +18,11 @@ import (
 	"bytes"
 	"context"
 	"strconv"
-	"sync/atomic"
 	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/pkg/executor/internal/exec"
+	tikvstore "github.com/tikv/client-go/v2/kv"
 	"github.com/pingcap/tidb/pkg/kv"
 	"github.com/pingcap/tidb/pkg/meta/model"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -217,13 +217,30 @@ func (fkc *FKCheckExec) addRowNeedToCheck(sc *stmtctx.StatementContext, row []ty
 	return nil
 }
 
-func (fkc *FKCheckExec) doCheck(ctx context.Context) error {
+type hackFilter struct {
+	toBeLockedKeys   []kv.Key
+}
+
+func (m hackFilter) IsUnnecessaryKeyValue(
+	key, value []byte, flags tikvstore.KeyFlags,
+) (bool, error) {
+	for _, xx := range m.toBeLockedKeys {
+		if bytes.Equal(xx, key) {
+			// fmt.Println("filter lock key ==", hex.EncodeToString(key))
+			return true, nil
+		}
+	}
+	// fmt.Println("commit key not filtered ==", hex.EncodeToString(key), "lock keys =", m.toBeLockedKeys)
+	return false, nil
+}
+
+func (fkc *FKCheckExec) doCheck(ctx context.Context, toBeLockedKeys []kv.Key) ([]kv.Key, error) {
 	if fkc.ctx.GetSessionVars().StmtCtx.RuntimeStatsColl != nil {
 		fkc.stats = &FKCheckRuntimeStats{}
 		defer fkc.ctx.GetSessionVars().StmtCtx.RuntimeStatsColl.RegisterStats(fkc.ID(), fkc.stats)
 	}
 	if len(fkc.toBeCheckedKeys) == 0 && len(fkc.toBeCheckedPrefixKeys) == 0 && len(fkc.toBeLockedKeys) == 0 {
-		return nil
+		return toBeLockedKeys, nil
 	}
 	start := time.Now()
 	if fkc.stats != nil {
@@ -234,39 +251,34 @@ func (fkc *FKCheckExec) doCheck(ctx context.Context) error {
 	}
 	txn, err := fkc.ctx.Txn(false)
 	if err != nil {
-		return err
+		return toBeLockedKeys, err
 	}
 	err = fkc.checkKeys(ctx, txn)
 	if err != nil {
-		return err
+		return toBeLockedKeys, err
 	}
 	err = fkc.checkIndexKeys(ctx, txn)
 	if err != nil {
-		return err
+		return toBeLockedKeys, err
 	}
 	if fkc.stats != nil {
 		fkc.stats.Check = time.Since(start)
 	}
 
 	if len(fkc.toBeLockedKeys) == 0 {
-		return nil
+		return toBeLockedKeys, nil
 	}
-	sessVars := fkc.ctx.GetSessionVars()
-	lockCtx, err := newLockCtx(fkc.ctx, sessVars.LockWaitTimeout, len(fkc.toBeLockedKeys))
-	if err != nil {
-		return err
-	}
-	// WARN: Since tidb current doesn't support `LOCK IN SHARE MODE`, therefore, performance will be very poor in concurrency cases.
-	// TODO(crazycs520):After TiDB support `LOCK IN SHARE MODE`, use `LOCK IN SHARE MODE` here.
-	forUpdate := atomic.LoadUint32(&sessVars.TxnCtx.ForUpdate)
-	err = doLockKeys(ctx, fkc.ctx, lockCtx, fkc.toBeLockedKeys...)
+
+	// err = doLockKeys(ctx, fkc.ctx, lockCtx, fkc.toBeLockedKeys...)
+	toBeLockedKeys = append(toBeLockedKeys, fkc.toBeLockedKeys...)
+
 	// doLockKeys may set TxnCtx.ForUpdate to 1, then if the lock meet write conflict, TiDB can't retry for update.
 	// So reset TxnCtx.ForUpdate to 0 then can be retry if meet write conflict.
-	atomic.StoreUint32(&sessVars.TxnCtx.ForUpdate, forUpdate)
+	// atomic.StoreUint32(&sessVars.TxnCtx.ForUpdate, forUpdate)
 	if fkc.stats != nil {
 		fkc.stats.Lock = time.Since(start) - fkc.stats.Check
 	}
-	return err
+	return toBeLockedKeys, nil
 }
 
 func (fkc *FKCheckExec) buildCheckKeyFromFKValue(sc *stmtctx.StatementContext, vals []types.Datum) (key kv.Key, isPrefix bool, err error) {

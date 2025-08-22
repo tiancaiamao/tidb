@@ -15,11 +15,11 @@
 package txn
 
 import (
+	"fmt"
 	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -157,6 +157,11 @@ func extractKeyErr(err error) error {
 		return nil
 	}
 	if e, ok := errors.Cause(err).(*tikverr.ErrWriteConflict); ok {
+		fmt.Println("write conflict? how could it happen?",
+			e.WriteConflict,
+			hex.EncodeToString(e.WriteConflict.Key),
+			"primary key?",
+			hex.EncodeToString(e.WriteConflict.Primary))
 		return newWriteConflictError(e.WriteConflict)
 	}
 	if e, ok := errors.Cause(err).(*tikverr.ErrRetryable); ok {
