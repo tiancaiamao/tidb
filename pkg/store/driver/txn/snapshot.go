@@ -25,6 +25,7 @@ import (
 	"github.com/pingcap/tidb/pkg/store/driver/options"
 	"github.com/tikv/client-go/v2/tikvrpc"
 	"github.com/tikv/client-go/v2/tikvrpc/interceptor"
+	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/tikv/client-go/v2/txnkv"
 	"github.com/tikv/client-go/v2/txnkv/txnsnapshot"
 	"github.com/tikv/client-go/v2/txnkv/txnutil"
@@ -34,11 +35,12 @@ type tikvSnapshot struct {
 	*txnsnapshot.KVSnapshot
 	// customRetrievers stores all custom retrievers, it is sorted
 	interceptor kv.SnapshotInterceptor
+	forDDL kv.ForDDLProtocolOption
 }
 
 // NewSnapshot creates a kv.Snapshot with txnsnapshot.KVSnapshot.
 func NewSnapshot(snapshot *txnsnapshot.KVSnapshot) kv.Snapshot {
-	return &tikvSnapshot{snapshot, nil}
+	return &tikvSnapshot{snapshot, nil, 0}
 }
 
 // BatchGet gets all the keys' value from kv-server and returns a map contains key/value pairs.
@@ -149,6 +151,13 @@ func (s *tikvSnapshot) SetOption(opt int, val any) {
 		s.KVSnapshot.SetLoadBasedReplicaReadThreshold(val.(time.Duration))
 	case kv.TiKVClientReadTimeout:
 		s.KVSnapshot.SetKVReadTimeout(time.Duration(val.(uint64) * uint64(time.Millisecond)))
+	case kv.ForDDLProtocol:
+		if forDDL, ok := val.(kv.ForDDLProtocolOption); ok {
+			s.forDDL = forDDL
+			s.KVSnapshot.SetForDDLProtocol()
+		} else {
+			logutil.BgLogger().Warn("mis-use of ForDDLProtocol in snapshot SetOption")
+		}
 	}
 }
 

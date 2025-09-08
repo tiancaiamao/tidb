@@ -819,7 +819,14 @@ func (store *MVCCStore) prewriteOptimistic(reqCtx *requestCtx, mutations []*kvrp
 		item := items[i]
 		if item != nil {
 			userMeta := mvcc.DBUserMeta(item.UserMeta())
-			if userMeta.CommitTS() > startTS {
+			meetCommitted := userMeta.CommitTS() > startTS
+			if req.ForDdlProtocol {
+				// DDL protocol ignore the committed record directly, this is not taken as conflict.
+				if meetCommitted {
+					continue
+				}
+			}
+			if meetCommitted {
 				return &kverrors.ErrConflict{
 					StartTS:          startTS,
 					ConflictTS:       userMeta.StartTS(),
@@ -1467,6 +1474,24 @@ func checkLockForRcCheckTS(lock mvcc.Lock, key []byte, startTS uint64, resolved 
 	}
 }
 
+// checkLockForRcCheckTS checks the lock for `RcCheckTS` isolation level in transaction read.
+func checkLockForDDL(lock mvcc.Lock, key []byte, startTS uint64, resolved []uint64, committed []uint64) error {
+	if inTSSet(lock.StartTS, resolved) {
+		return nil
+	}
+	lockVisible := lock.StartTS <= startTS
+	isWriteLock := lock.Op == uint8(kvrpcpb.Op_Put) || lock.Op == uint8(kvrpcpb.Op_Del)
+	isPrimaryGet := startTS == maxSystemTS && bytes.Equal(lock.Primary, key) && !lock.UseAsyncCommit
+	if lockVisible && isWriteLock && !isPrimaryGet {
+		// Unlike checkLock, meet committed lock is ignored for DDL
+		// Only the ongoing txn lock is consider as conflict
+		if !inTSSet(lock.StartTS, committed) {
+			return kverrors.BuildLockErr(safeCopy(key), &lock)
+		}
+	}
+	return nil
+}
+
 // CheckKeysLockForRcCheckTS is used to check version timestamp if `RcCheckTS` isolation level is used.
 func (store *MVCCStore) CheckKeysLockForRcCheckTS(startTS uint64, resolved []uint64, keys ...[]byte) error {
 	var buf []byte
@@ -1881,6 +1906,25 @@ func (store *MVCCStore) BatchGet(reqCtx *requestCtx, keys [][]byte, version uint
 	return pairs
 }
 
+func (store *MVCCStore) collectRangeLockForDDL(startTS uint64, startKey, endKey []byte, resolved, committed []uint64) []*kvrpcpb.KvPair {
+	var pairs []*kvrpcpb.KvPair
+	it := store.lockStore.NewIterator()
+	for it.Seek(startKey); it.Valid(); it.Next() {
+		if exceedEndKey(it.Key(), endKey) {
+			break
+		}
+		lock := mvcc.DecodeLock(it.Value())
+		err := checkLockForDDL(lock, it.Key(), startTS, resolved, committed)
+		if err != nil {
+			pairs = append(pairs, &kvrpcpb.KvPair{
+				Error: convertToKeyError(err),
+				Key:   safeCopy(it.Key()),
+			})
+		}
+	}
+	return pairs
+}
+
 func (store *MVCCStore) collectRangeLock(startTS uint64, startKey, endKey []byte, resolved, committed []uint64,
 	isolationLEvel kvrpcpb.IsolationLevel) []*kvrpcpb.KvPair {
 	var pairs []*kvrpcpb.KvPair
@@ -1943,6 +1987,52 @@ func (p *kvScanProcessor) Process(key, value []byte) (err error) {
 
 func (p *kvScanProcessor) SkipValue() bool {
 	return false
+}
+
+
+// DDLScan implements the MVCCStore interface.
+func (store *MVCCStore) DDLScan(reqCtx *requestCtx, req *kvrpcpb.DDLScanRequest) []*kvrpcpb.KvPair {
+	var startKey, endKey []byte
+	startKey = req.StartKey
+	endKey = req.EndKey
+	if len(endKey) == 0 {
+		endKey = reqCtx.regCtx.RawEnd()
+	}
+	if len(endKey) == 0 {
+		// Don't scan internal keys.
+		endKey = InternalKeyPrefix
+	}
+	lockPairs := store.collectRangeLockForDDL(req.GetVersion(), startKey, endKey, reqCtx.rpcCtx.ResolvedLocks,
+		reqCtx.rpcCtx.CommittedLocks)
+	var scanProc = &kvScanProcessor{}
+	reader := reqCtx.getDBReader()
+	err := reader.DDLScan(startKey, endKey, 256, req.GetVersion(), scanProc)
+	if err != nil {
+		scanProc.pairs = append(scanProc.pairs[:0], &kvrpcpb.KvPair{
+			Error: convertToKeyError(err),
+		})
+		return scanProc.pairs
+	}
+	pairs := append(lockPairs, scanProc.pairs...)
+	sort.SliceStable(pairs, func(i, j int) bool {
+		cmp := bytes.Compare(pairs[i].Key, pairs[j].Key)
+		return cmp < 0
+	})
+	validPairs := pairs[:0]
+	var prev *kvrpcpb.KvPair
+	for _, pair := range pairs {
+		if prev != nil && bytes.Equal(prev.Key, pair.Key) {
+			continue
+		}
+		prev = pair
+		if pair.Error != nil || len(pair.Value) != 0 {
+			validPairs = append(validPairs, pair)
+			if len(validPairs) >= 256 {
+				break
+			}
+		}
+	}
+	return validPairs
 }
 
 // Scan implements the MVCCStore interface.

@@ -1397,7 +1397,9 @@ func checkIfTempIndexIsEmptyForPhysicalTable(
 	start, end := encodeTempIndexRange(pid, firstIdxID, lastIdxID)
 	foundKey := false
 	idxPrefix := tablecodec.GenTableIndexPrefix(pid)
-	err := iterateSnapshotKeys(ctx, store, kv.PriorityLow, idxPrefix, startTS, start, end,
+	ver := kv.Version{Ver: startTS}
+	snap := store.GetSnapshot(ver)
+	err := iterateSnapshotKeys(ctx, snap, kv.PriorityLow, idxPrefix, start, end,
 		func(_ kv.Handle, _ kv.Key, _ []byte) (more bool, err error) {
 			foundKey = true
 			return false, nil
@@ -2133,7 +2135,10 @@ func (w *baseIndexWorker) fetchRowColVals(txn kv.Transaction, taskRange reorgBac
 	// taskDone means that the reorged handle is out of taskRange.endHandle.
 	taskDone := false
 	oprStartTime := startTime
-	err := iterateSnapshotKeys(w.jobContext, w.ddlCtx.store, taskRange.priority, taskRange.physicalTable.RecordPrefix(), txn.StartTS(),
+	ver := kv.Version{Ver: txn.StartTS()}
+	snap := w.ddlCtx.store.GetSnapshot(ver)
+	snap.SetOption(kv.ForDDLProtocol, true)
+	err := iterateSnapshotKeys(w.jobContext, snap, taskRange.priority, taskRange.physicalTable.RecordPrefix(),
 		taskRange.startKey, taskRange.endKey, func(handle kv.Handle, recordKey kv.Key, rawRow []byte) (bool, error) {
 			oprEndTime := time.Now()
 			logSlowOperations(oprEndTime.Sub(oprStartTime), "iterateSnapshotKeys in baseIndexWorker fetchRowColVals", 0)

@@ -208,13 +208,53 @@ func exceedEndKey(current, endKey []byte) bool {
 	return bytes.Compare(current, endKey) >= 0
 }
 
+// DDLScan scans the key range with the given ScanProcessor.
+func (r *DBReader) DDLScan(startKey, endKey []byte, limit int, startTS uint64, proc ScanProcessor) error {
+	r.txn.SetReadTS(startTS)
+	iter := r.GetIter()
+	var cnt int
+	var err error
+	for iter.Seek(startKey); iter.Valid(); iter.Next() {
+		item := iter.Item()
+		key := item.Key()
+		if exceedEndKey(key, endKey) {
+			break
+		}
+		// DDL protocol backfill can safely ignore the records that is modified after start TS
+		userMeta := mvcc.DBUserMeta(item.UserMeta())
+		if userMeta.CommitTS() > startTS {
+			continue
+		}
+
+		if item.IsEmpty() {
+			continue
+		}
+		var val []byte
+		val, err = item.Value()
+		if err != nil {
+			return errors.Trace(err)
+		}
+		err = proc.Process(key, val)
+		if err != nil {
+			if err == ErrScanBreak {
+				break
+			}
+			return errors.Trace(err)
+		}
+		cnt++
+		if cnt >= limit {
+			break
+		}
+	}
+	return nil
+}
+
 // Scan scans the key range with the given ScanProcessor.
 func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, proc ScanProcessor) error {
 	r.txn.SetReadTS(startTS)
 	if r.RcCheckTS {
 		r.txn.SetReadTS(math.MaxUint64)
 	}
-	skipValue := proc.SkipValue()
 	iter := r.GetIter()
 	var cnt int
 	var err error
@@ -232,11 +272,9 @@ func (r *DBReader) Scan(startKey, endKey []byte, limit int, startTS uint64, proc
 			continue
 		}
 		var val []byte
-		if !skipValue {
-			val, err = item.Value()
-			if err != nil {
-				return errors.Trace(err)
-			}
+		val, err = item.Value()
+		if err != nil {
+			return errors.Trace(err)
 		}
 		err = proc.Process(key, val)
 		if err != nil {

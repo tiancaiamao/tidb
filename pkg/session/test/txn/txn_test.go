@@ -503,3 +503,18 @@ func TestMemBufferCleanupMemoryLeak(t *testing.T) {
 	}
 	tk.MustExec("commit")
 }
+
+
+func TestXXX(t *testing.T) {
+	// Test if cleanup memory will cause a memory leak.
+	// When an in-txn statement fails, TiDB cleans up the mutations from this statement.
+	// If there's a memory leak, the memory usage could increase uncontrollably with retries.
+	store := testkit.CreateMockStore(t)
+	tk := testkit.NewTestKit(t, store)
+	tk.MustExec("use test")
+	tk.MustExec("create table t (id int primary key, c int, index(c))")
+	for i:=0; i<10; i++ {
+		tk.MustExec("insert into t values (?, ?)", i, i)
+	}
+	tk.MustExec("alter table t modify column c varchar(64)")
+}

@@ -771,7 +771,9 @@ func GetTableMaxHandle(ctx *ReorgContext, store kv.Storage, startTS uint64, tbl 
 // In case of an error during the operation, it returns false along with the error.
 func existsTableRow(ctx *ReorgContext, store kv.Storage, tbl table.PhysicalTable, startTS uint64) (bool, error) {
 	found := false
-	err := iterateSnapshotKeys(ctx, store, kv.PriorityLow, tbl.RecordPrefix(), startTS, nil, nil,
+	ver := kv.Version{Ver: startTS}
+	snap := store.GetSnapshot(ver)
+	err := iterateSnapshotKeys(ctx, snap, kv.PriorityLow, tbl.RecordPrefix(), nil, nil,
 		func(_ kv.Handle, _ kv.Key, _ []byte) (bool, error) {
 			found = true
 			return false, nil
@@ -825,8 +827,10 @@ func buildCommonHandleFromChunkRow(loc *time.Location, tblInfo *model.TableInfo,
 
 // getTableRange gets the start and end handle of a table (or partition).
 func getTableRange(ctx *ReorgContext, store kv.Storage, tbl table.PhysicalTable, snapshotVer uint64, priority int) (startHandleKey, endHandleKey kv.Key, err error) {
+	ver := kv.Version{Ver: snapshotVer}
+	snap := store.GetSnapshot(ver)
 	// Get the start handle of this partition.
-	err = iterateSnapshotKeys(ctx, store, priority, tbl.RecordPrefix(), snapshotVer, nil, nil,
+	err = iterateSnapshotKeys(ctx, snap, priority, tbl.RecordPrefix(), nil, nil,
 		func(_ kv.Handle, rowKey kv.Key, _ []byte) (bool, error) {
 			startHandleKey = rowKey
 			return false, nil

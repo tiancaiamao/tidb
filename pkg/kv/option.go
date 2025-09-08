@@ -118,7 +118,11 @@ const (
 	BackgroundGoroutineLifecycleHooks
 	// PrewriteEncounterLockPolicy is the policy to handle lock conflict during prewrite
 	PrewriteEncounterLockPolicy
+
+	ForDDLProtocol
 )
+
+type ForDDLProtocolOption uint32
 
 // TxnSizeLimits is the argument type for `SizeLimits` option
 type TxnSizeLimits struct {

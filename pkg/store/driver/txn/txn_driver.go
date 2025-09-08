@@ -16,6 +16,7 @@ package txn
 
 import (
 	"bytes"
+	"math/rand"
 	"context"
 	"sync/atomic"
 	"time"
@@ -52,6 +53,7 @@ type tikvTxn struct {
 	columnMapsCache    any
 	isCommitterWorking atomic.Bool
 	memBuffer          *memBuffer
+	forDDL kv.ForDDLProtocolOption
 }
 
 // NewTiKVTxn returns a new Transaction.
@@ -65,7 +67,7 @@ func NewTiKVTxn(txn *tikv.KVTxn) kv.Transaction {
 
 	return &tikvTxn{
 		txn, make(map[int64]*model.TableInfo), nil, nil, atomic.Bool{},
-		newMemBuffer(txn.GetMemBuffer(), txn.IsPipelined()),
+		newMemBuffer(txn.GetMemBuffer(), txn.IsPipelined()), 0,
 	}
 }
 
@@ -115,6 +117,9 @@ func (txn *tikvTxn) Commit(ctx context.Context) error {
 	if intest.InTest {
 		txn.isCommitterWorking.Store(true)
 	}
+	if txn.forDDL > 0 {
+		return errors.New("misuse of DDL protocol")
+	}
 	err := txn.KVTxn.Commit(ctx)
 	return txn.extractKeyErr(err)
 }
@@ -131,7 +136,7 @@ func (txn *tikvTxn) RollbackMemDBToCheckpoint(savepoint *tikv.MemDBCheckpoint) {
 
 // GetSnapshot returns the Snapshot binding to this transaction.
 func (txn *tikvTxn) GetSnapshot() kv.Snapshot {
-	return &tikvSnapshot{txn.KVTxn.GetSnapshot(), txn.snapshotInterceptor}
+	return &tikvSnapshot{txn.KVTxn.GetSnapshot(), txn.snapshotInterceptor, 0}
 }
 
 // Iter creates an Iterator positioned on the first entry that k <= entry's key.
@@ -314,6 +319,16 @@ func (txn *tikvTxn) SetOption(opt int, val any) {
 		txn.KVTxn.SetBackgroundGoroutineLifecycleHooks(val.(transaction.LifecycleHooks))
 	case kv.PrewriteEncounterLockPolicy:
 		txn.KVTxn.SetPrewriteEncounterLockPolicy(val.(transaction.PrewriteEncounterLockPolicy))
+	case kv.ForDDLProtocol:
+		if origin, ok := val.(*tikvSnapshot); ok {
+			if origin.forDDL == txn.forDDL {
+				txn.forDDL = 0
+				txn.SetForDDLProtocol()
+			}
+		}
+		if txn.forDDL != 0 {
+			logutil.BgLogger().Warn("mis-use of ForDDLProtocol in txn SetOption")
+		}
 	}
 }
 
@@ -471,6 +486,11 @@ func (txn *tikvTxn) MayFlush() error {
 	}
 	_, err := txn.KVTxn.GetMemBuffer().Flush(false)
 	return txn.extractKeyErr(err)
+}
+
+func (txn *tikvTxn) ForDDLProtocol() kv.ForDDLProtocolOption {
+	txn.forDDL = kv.ForDDLProtocolOption(rand.Int31() + 1)
+	return txn.forDDL
 }
 
 // assertCommitterNotWorking asserts that the committer is not working, so it's safe to modify the options for txn and committer.

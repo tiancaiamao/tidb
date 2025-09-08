@@ -293,6 +293,14 @@ type Transaction interface {
 	IsPipelined() bool
 	// MayFlush flush the pipelined memdb if the keys or size exceeds threshold, no effect for standard DML.
 	MayFlush() error
+
+	// ForDDLProtocol mark this txn as DDL only.
+	// The API is special designed to prevent mis-use.
+	// opt := txn.ForDDLProtocol()
+	// snap.SetOption(ForDDLProtocol, opt)
+	// txn.SetOption(ForDDLProtocol, snap)
+	// txn.Commit()
+	ForDDLProtocol() ForDDLProtocolOption
 }
 
 // AssertionProto is an interface defined for the assertion protocol.

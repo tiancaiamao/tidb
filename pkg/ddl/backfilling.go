@@ -1119,7 +1119,7 @@ func (dc *ddlCtx) writePhysicalTableRecord(
 // recordIterFunc is used for low-level record iteration.
 type recordIterFunc func(h kv.Handle, rowKey kv.Key, rawRecord []byte) (more bool, err error)
 
-func iterateSnapshotKeys(ctx *ReorgContext, store kv.Storage, priority int, keyPrefix kv.Key, version uint64,
+func iterateSnapshotKeys(ctx *ReorgContext, snap kv.Snapshot, priority int, keyPrefix kv.Key,
 	startKey kv.Key, endKey kv.Key, fn recordIterFunc) error {
 	isRecord := tablecodec.IsRecordKey(keyPrefix.Next())
 	var firstKey kv.Key
@@ -1136,8 +1136,6 @@ func iterateSnapshotKeys(ctx *ReorgContext, store kv.Storage, priority int, keyP
 		upperBound = endKey.PrefixNext()
 	}
 
-	ver := kv.Version{Ver: version}
-	snap := store.GetSnapshot(ver)
 	snap.SetOption(kv.Priority, priority)
 	snap.SetOption(kv.RequestSourceInternal, true)
 	snap.SetOption(kv.RequestSourceType, ctx.ddlJobSourceType())

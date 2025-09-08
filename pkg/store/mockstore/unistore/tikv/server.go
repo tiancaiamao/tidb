@@ -192,6 +192,22 @@ func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpc
 	}, nil
 }
 
+// KvScan implements the tikvpb.TikvServer interface.
+func (svr *Server) KvDDLScan(ctx context.Context, req *kvrpcpb.DDLScanRequest) (*kvrpcpb.DDLScanResponse, error) {
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvDDLScan")
+	if err != nil {
+		return &kvrpcpb.DDLScanResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
+	}
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.DDLScanResponse{RegionError: reqCtx.regErr}, nil
+	}
+	pairs := svr.mvccStore.DDLScan(reqCtx, req)
+	return &kvrpcpb.DDLScanResponse{
+		Pairs: pairs,
+	}, nil
+}
+
 // KvPessimisticLock implements the tikvpb.TikvServer interface.
 func (svr *Server) KvPessimisticLock(ctx context.Context, req *kvrpcpb.PessimisticLockRequest) (*kvrpcpb.PessimisticLockResponse, error) {
 	failpoint.Inject("pessimisticLockReturnWriteConflict", func(val failpoint.Value) {

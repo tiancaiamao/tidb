@@ -734,8 +734,15 @@ func (w *updateColumnWorker) fetchRowColVals(txn kv.Transaction, taskRange reorg
 	taskDone := false
 	var lastAccessedHandle kv.Key
 	oprStartTime := startTime
-	err := iterateSnapshotKeys(w.jobContext, w.ddlCtx.store, taskRange.priority, taskRange.physicalTable.RecordPrefix(),
-		txn.StartTS(), taskRange.startKey, taskRange.endKey, func(handle kv.Handle, recordKey kv.Key, rawRow []byte) (bool, error) {
+
+	// If DDL protocol is available, use that optimization.
+	// Otherwise use the original way.
+	ver := kv.Version{Ver: txn.StartTS()}
+	snap := w.ddlCtx.store.GetSnapshot(ver)
+	snap.SetOption(kv.ForDDLProtocol, txn.ForDDLProtocol())
+
+	err := iterateSnapshotKeys(w.jobContext, snap, taskRange.priority, taskRange.physicalTable.RecordPrefix(),
+		taskRange.startKey, taskRange.endKey, func(handle kv.Handle, recordKey kv.Key, rawRow []byte) (bool, error) {
 			oprEndTime := time.Now()
 			logSlowOperations(oprEndTime.Sub(oprStartTime), "iterateSnapshotKeys in updateColumnWorker fetchRowColVals", 0)
 			oprStartTime = oprEndTime
@@ -760,6 +767,8 @@ func (w *updateColumnWorker) fetchRowColVals(txn kv.Transaction, taskRange reorg
 	if len(w.rowRecords) == 0 {
 		taskDone = true
 	}
+
+	txn.SetOption(kv.ForDDLProtocol, snap)
 
 	logutil.DDLLogger().Debug("txn fetches handle info",
 		zap.Uint64("txnStartTS", txn.StartTS()),
