@@ -2137,7 +2137,7 @@ func (w *baseIndexWorker) fetchRowColVals(txn kv.Transaction, taskRange reorgBac
 	oprStartTime := startTime
 	ver := kv.Version{Ver: txn.StartTS()}
 	snap := w.ddlCtx.store.GetSnapshot(ver)
-	snap.SetOption(kv.ForDDLProtocol, true)
+	snap.SetOption(kv.ForDDLBackfill, true)
 	err := iterateSnapshotKeys(w.jobContext, snap, taskRange.priority, taskRange.physicalTable.RecordPrefix(),
 		taskRange.startKey, taskRange.endKey, func(handle kv.Handle, recordKey kv.Key, rawRow []byte) (bool, error) {
 			oprEndTime := time.Now()

@@ -119,10 +119,8 @@ const (
 	// PrewriteEncounterLockPolicy is the policy to handle lock conflict during prewrite
 	PrewriteEncounterLockPolicy
 
-	ForDDLProtocol
+	ForDDLBackfill
 )
-
-type ForDDLProtocolOption uint32
 
 // TxnSizeLimits is the argument type for `SizeLimits` option
 type TxnSizeLimits struct {

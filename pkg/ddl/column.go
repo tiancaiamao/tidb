@@ -767,7 +767,7 @@ func (w *updateColumnWorker) fetchRowColVals(txn kv.Transaction, taskRange reorg
 		taskDone = true
 	}
 
-	txn.SetOption(kv.ForDDLProtocol, snap)
+	txn.SetOption(kv.ForDDLBackfill, snap)
 
 	logutil.DDLLogger().Debug("txn fetches handle info",
 		zap.Uint64("txnStartTS", txn.StartTS()),
