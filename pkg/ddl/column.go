@@ -735,11 +735,10 @@ func (w *updateColumnWorker) fetchRowColVals(txn kv.Transaction, taskRange reorg
 	var lastAccessedHandle kv.Key
 	oprStartTime := startTime
 
-	// If DDL protocol is available, use that optimization.
-	// Otherwise use the original way.
 	ver := kv.Version{Ver: txn.StartTS()}
 	snap := w.ddlCtx.store.GetSnapshot(ver)
-	snap.SetOption(kv.ForDDLProtocol, txn.ForDDLProtocol())
+	// If DDL protocol is available, use that optimization.
+	// snap.SetOption(kv.ForDDLProtocol, txn.ForDDLProtocol())
 
 	err := iterateSnapshotKeys(w.jobContext, snap, taskRange.priority, taskRange.physicalTable.RecordPrefix(),
 		taskRange.startKey, taskRange.endKey, func(handle kv.Handle, recordKey kv.Key, rawRow []byte) (bool, error) {

@@ -140,8 +140,8 @@ func (c *RPCClient) SendRequest(ctx context.Context, addr string, req *tikvrpc.R
 	switch req.Type {
 	case tikvrpc.CmdGet:
 		resp.Resp, err = c.usSvr.KvGet(ctx, req.Get())
-	case tikvrpc.CmdDDLScan:
-		resp.Resp, err = c.usSvr.KvDDLScan(ctx, req.DDLScan())
+	case tikvrpc.CmdDDLBackfillScan:
+		resp.Resp, err = c.usSvr.KvDDLBackfillScan(ctx, req.DDLBackfillScan())
 	case tikvrpc.CmdScan:
 		kvScanReq := req.Scan()
 		failpoint.Inject("rpcScanResult", func(val failpoint.Value) {

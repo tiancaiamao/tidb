@@ -758,6 +758,28 @@ func (store *MVCCStore) getLatestExtraMetaForKey(reqCtx *requestCtx, m *kvrpcpb.
 }
 
 // Prewrite implements the MVCCStore interface.
+func (store *MVCCStore) DDLBackfillCommit(reqCtx *requestCtx, req *kvrpcpb.DDLBackfillCommitRequest) error {
+	mutations := sortMutations(req.Mutations)
+	regCtx := reqCtx.regCtx
+	hashVals := mutationsToHashVals(mutations)
+
+	regCtx.AcquireLatches(hashVals)
+	defer regCtx.ReleaseLatches(hashVals)
+
+	var err error
+	err = store.ddlBackfillCommit(reqCtx, mutations, req)
+	if err != nil {
+		return err
+	}
+
+	if reqCtx.onePCCommitTS != 0 {
+		// TODO: Is it correct to pass the hashVals directly here, considering that some of the keys may
+		// have no pessimistic lock?
+	}
+	return nil
+}
+
+// Prewrite implements the MVCCStore interface.
 func (store *MVCCStore) Prewrite(reqCtx *requestCtx, req *kvrpcpb.PrewriteRequest) error {
 	mutations := sortPrewrite(req)
 	regCtx := reqCtx.regCtx
@@ -786,6 +808,141 @@ func (store *MVCCStore) Prewrite(reqCtx *requestCtx, req *kvrpcpb.PrewriteReques
 		}
 	}
 	return nil
+}
+
+func (store *MVCCStore) ddlBackfillCommit(reqCtx *requestCtx, mutations []*kvrpcpb.Mutation, req *kvrpcpb.DDLBackfillCommitRequest) error {
+	startTS := req.StartVersion
+	// Must check the LockStore first.
+	for _, m := range mutations {
+		lock, err := store.checkConflictInLockStore(reqCtx, m, startTS)
+		if err != nil {
+			return err
+		}
+		if lock != nil {
+			// duplicated command
+			return nil
+		}
+		if bytes.Equal(m.Key, req.PrimaryLock) {
+			status := store.checkExtraTxnStatus(reqCtx, m.Key, req.StartVersion)
+			if status.isRollback {
+				return kverrors.ErrAlreadyRollback
+			}
+			if status.isOpLockCommitted() {
+				// duplicated command
+				return nil
+			}
+		}
+	}
+	items, err := store.getDBItems(reqCtx, mutations)
+	if err != nil {
+		return err
+	}
+	for i, m := range mutations {
+		item := items[i]
+		if item != nil {
+			userMeta := mvcc.DBUserMeta(item.UserMeta())
+			meetCommitted := userMeta.CommitTS() > startTS
+			// DDL protocol ignore the committed record directly, this is not taken as conflict.
+			if meetCommitted {
+				continue
+			}
+		}
+		// Op_CheckNotExists type requests should not add lock
+		if m.Op == kvrpcpb.Op_CheckNotExists {
+			if item != nil {
+				val, err := item.Value()
+				if err != nil {
+					return err
+				}
+				if len(val) > 0 {
+					return &kverrors.ErrKeyAlreadyExists{Key: m.Key}
+				}
+			}
+			continue
+		}
+		// TODO add memory lock for async commit protocol.
+	}
+	return store.ddlBackfillCommitMutations(reqCtx, mutations, req, items)
+}
+
+func (store *MVCCStore) ddlBackfillCommitMutations(reqCtx *requestCtx, mutations []*kvrpcpb.Mutation,
+	req *kvrpcpb.DDLBackfillCommitRequest, items []*badger.Item) error {
+	var minCommitTS uint64
+	// Get minCommitTS for async commit protocol. After all keys are locked in memory lock.
+	physical, logical, tsErr := store.pdClient.GetTS(context.Background())
+	if tsErr != nil {
+		return tsErr
+	}
+	minCommitTS = uint64(physical)<<18 + uint64(logical)
+	if minCommitTS < req.StartVersion {
+		log.Fatal("1pc commitTS less than startTS", zap.Uint64("startTS", req.StartVersion), zap.Uint64("minCommitTS", minCommitTS))
+	}
+
+	reqCtx.onePCCommitTS = minCommitTS
+	store.updateLatestTS(minCommitTS)
+	batch := store.dbWriter.NewWriteBatch(req.StartVersion, minCommitTS, reqCtx.rpcCtx)
+
+	for i, m := range mutations {
+		if m.Op == kvrpcpb.Op_CheckNotExists {
+			continue
+		}
+		lock, err1 := store.buildPrewriteLockForDDLBackfill(reqCtx, m, items[i], req)
+		if err1 != nil {
+			// return false, err1
+			return err1
+		}
+		// batch.Commit will panic if the key is not locked. So there need to be a special function
+		// for it to commit without deleting lock.
+		batch.Commit(m.Key, lock)
+	}
+
+	if err := store.dbWriter.Write(batch); err != nil {
+		// return false, err
+		return err
+	}
+	return nil
+}
+
+func (store *MVCCStore) buildPrewriteLockForDDLBackfill(reqCtx *requestCtx, m *kvrpcpb.Mutation, item *badger.Item,
+	req *kvrpcpb.DDLBackfillCommitRequest) (*mvcc.Lock, error) {
+	lock := &mvcc.Lock{
+		LockHdr: mvcc.LockHdr{
+			StartTS:        req.StartVersion,
+			// TTL:            uint32(req.LockTtl),
+			PrimaryLen:     uint16(len(req.PrimaryLock)),
+			// MinCommitTS:    req.MinCommitTs,
+			// UseAsyncCommit: req.UseAsyncCommit,
+			// SecondaryNum:   uint32(len(req.Secondaries)),
+		},
+		Primary:     req.PrimaryLock,
+		Value:       m.Value,
+		// Secondaries: req.Secondaries,
+	}
+	var err error
+	lock.Op = uint8(m.Op)
+	if lock.Op == uint8(kvrpcpb.Op_Insert) {
+		if item != nil && item.ValueSize() > 0 {
+			return nil, &kverrors.ErrKeyAlreadyExists{Key: m.Key}
+		}
+		lock.Op = uint8(kvrpcpb.Op_Put)
+	}
+	// In the write path, remove the keyspace prefix
+	// to ensure compatibility with the key parsing implemented in the mock.
+	tempKey := rowcodec.RemoveKeyspacePrefix(m.Key)
+	if rowcodec.IsRowKey(tempKey) && lock.Op == uint8(kvrpcpb.Op_Put) {
+		if !rowcodec.IsNewFormat(m.Value) {
+			reqCtx.buf, err = encodeFromOldRow(m.Value, reqCtx.buf)
+			if err != nil {
+				log.Error("encode data failed", zap.Binary("value", m.Value), zap.Binary("key", m.Key), zap.Stringer("op", m.Op), zap.Error(err))
+				return nil, err
+			}
+
+			lock.Value = slices.Clone(reqCtx.buf)
+		}
+	}
+
+	// lock.ForUpdateTS = req.ForUpdateTs
+	return lock, nil
 }
 
 func (store *MVCCStore) prewriteOptimistic(reqCtx *requestCtx, mutations []*kvrpcpb.Mutation, req *kvrpcpb.PrewriteRequest) error {
@@ -1991,7 +2148,7 @@ func (p *kvScanProcessor) SkipValue() bool {
 
 
 // DDLScan implements the MVCCStore interface.
-func (store *MVCCStore) DDLScan(reqCtx *requestCtx, req *kvrpcpb.DDLScanRequest) []*kvrpcpb.KvPair {
+func (store *MVCCStore) DDLBackfillScan(reqCtx *requestCtx, req *kvrpcpb.DDLBackfillScanRequest) []*kvrpcpb.KvPair {
 	var startKey, endKey []byte
 	startKey = req.StartKey
 	endKey = req.EndKey

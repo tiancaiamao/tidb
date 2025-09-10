@@ -193,17 +193,17 @@ func (svr *Server) KvScan(ctx context.Context, req *kvrpcpb.ScanRequest) (*kvrpc
 }
 
 // KvScan implements the tikvpb.TikvServer interface.
-func (svr *Server) KvDDLScan(ctx context.Context, req *kvrpcpb.DDLScanRequest) (*kvrpcpb.DDLScanResponse, error) {
-	reqCtx, err := newRequestCtx(svr, req.Context, "KvDDLScan")
+func (svr *Server) KvDDLBackfillScan(ctx context.Context, req *kvrpcpb.DDLBackfillScanRequest) (*kvrpcpb.DDLBackfillScanResponse, error) {
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvDDLBackfillScan")
 	if err != nil {
-		return &kvrpcpb.DDLScanResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
+		return &kvrpcpb.DDLBackfillScanResponse{Pairs: []*kvrpcpb.KvPair{{Error: convertToKeyError(err)}}}, nil
 	}
 	defer reqCtx.finish()
 	if reqCtx.regErr != nil {
-		return &kvrpcpb.DDLScanResponse{RegionError: reqCtx.regErr}, nil
+		return &kvrpcpb.DDLBackfillScanResponse{RegionError: reqCtx.regErr}, nil
 	}
-	pairs := svr.mvccStore.DDLScan(reqCtx, req)
-	return &kvrpcpb.DDLScanResponse{
+	pairs := svr.mvccStore.DDLBackfillScan(reqCtx, req)
+	return &kvrpcpb.DDLBackfillScanResponse{
 		Pairs: pairs,
 	}, nil
 }
@@ -368,6 +368,30 @@ func (svr *Server) KvCheckSecondaryLocks(ctx context.Context, req *kvrpcpb.Check
 	} else {
 		resp.Error, resp.RegionError = convertToPBError(err)
 	}
+	return resp, nil
+}
+
+// KvScan implements the tikvpb.TikvServer interface.
+func (svr *Server) KvDDLBackfillCommit(ctx context.Context, req *kvrpcpb.DDLBackfillCommitRequest) (*kvrpcpb.DDLBackfillCommitResponse, error) {
+	reqCtx, err := newRequestCtx(svr, req.Context, "KvDDLBackfillCommit")
+	if err != nil {
+		return &kvrpcpb.DDLBackfillCommitResponse{
+			// Errors: []*kvrpcpb.KeyError{convertToKeyError(err)}
+		}, nil
+	}
+	defer reqCtx.finish()
+	if reqCtx.regErr != nil {
+		return &kvrpcpb.DDLBackfillCommitResponse{RegionError: reqCtx.regErr}, nil
+	}
+	err = svr.mvccStore.DDLBackfillCommit(reqCtx, req)
+	resp := &kvrpcpb.DDLBackfillCommitResponse{}
+	// if reqCtx.asyncMinCommitTS > 0 {
+	// 	resp.MinCommitTs = reqCtx.asyncMinCommitTS
+	// }
+	// if reqCtx.onePCCommitTS > 0 {
+	// 	resp.OnePcCommitTs = reqCtx.onePCCommitTS
+	// }
+	// resp.Errors, resp.RegionError = convertToPBErrors(err)
 	return resp, nil
 }
 

@@ -24,6 +24,7 @@ import (
 	"github.com/pingcap/errors"
 	deadlockpb "github.com/pingcap/kvproto/pkg/deadlock"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/tidb/pkg/config"
 	"github.com/pingcap/tidb/pkg/meta/model"
@@ -300,7 +301,26 @@ type Transaction interface {
 	// snap.SetOption(ForDDLProtocol, opt)
 	// txn.SetOption(ForDDLProtocol, snap)
 	// txn.Commit()
-	ForDDLProtocol() ForDDLProtocolOption
+	// ForDDLProtocol(ctx context.Context, func(context.Context, kv.DDLBackfillTxn))
+}
+
+
+type DDLBackfillTxnScanResponse struct {
+	RegionError *errorpb.Error
+	Pairs []*kvrpcpb.KvPair
+}
+
+type DDLBackfillCommitResponse struct {
+	RegionError *errorpb.Error
+	Pairs []*kvrpcpb.KvPair
+	OnePcCommitTs uint64
+}
+
+// DDLBackfillTxn is very low-level API provided for DDL backfill.
+type DDLBackfillTxn interface {
+	BackfillScan(startKey []byte, endKey []byte, batchSize int) (DDLBackfillTxnScanResponse, error)
+	Set(k Key, v []byte) error
+	BackfillCommit() (DDLBackfillCommitResponse, error)
 }
 
 // AssertionProto is an interface defined for the assertion protocol.
