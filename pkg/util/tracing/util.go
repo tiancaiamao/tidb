@@ -25,7 +25,6 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/tidb/pkg/config/kerneltype"
 	"github.com/pingcap/tidb/pkg/util/intest"
-	clienttrace "github.com/tikv/client-go/v2/trace"
 	"go.uber.org/zap"
 )
 
@@ -101,41 +100,35 @@ func StartRegionWithNewRootSpan(ctx context.Context, regionType string) (Region,
 	return r, ctx
 }
 
-// Sink records trace events.
-type Sink interface {
+// TraceBuf records trace events.
+type TraceBuf interface {
 	Record(ctx context.Context, event Event)
 }
 
-// FlightRecorder defines the flight recorder interface.
-type FlightRecorder interface {
-	Sink
+type traceBufKeyType struct{}
+
+var traceBufKey traceBufKeyType = struct{}{}
+
+// GetTraceBuf returns the TraceBuf from the context.
+func GetTraceBuf(ctx context.Context) any {
+	return ctx.Value(traceBufKey)
 }
 
-type sinkKeyType struct{}
-
-var sinkKey sinkKeyType = struct{}{}
-
-// WithFlightRecorder creates a context with the given FlightRecorder.
-func WithFlightRecorder(ctx context.Context, sink FlightRecorder) context.Context {
-	return context.WithValue(ctx, sinkKey, sink)
+func WithTraceBuf(ctx context.Context, val TraceBuf) context.Context {
+	return context.WithValue(ctx, traceBufKey, val)
 }
 
-// GetSink returns the Sink from the context.
-func GetSink(ctx context.Context) any {
-	return ctx.Value(sinkKey)
-}
+// // ExtractTraceID returns the trace identifier from ctx if present.
+// // It delegates to client-go's TraceIDFromContext implementation.
+// func ExtractTraceID(ctx context.Context) []byte {
+// 	return extractTraceID(ctx)
+// }
 
-// ExtractTraceID returns the trace identifier from ctx if present.
-// It delegates to client-go's TraceIDFromContext implementation.
-func ExtractTraceID(ctx context.Context) []byte {
-	return extractTraceID(ctx)
-}
-
-// extractTraceID returns the trace identifier from ctx if present.
-// It delegates to client-go's TraceIDFromContext implementation.
-func extractTraceID(ctx context.Context) []byte {
-	return clienttrace.TraceIDFromContext(ctx)
-}
+// // extractTraceID returns the trace identifier from ctx if present.
+// // It delegates to client-go's TraceIDFromContext implementation.
+// func extractTraceID(ctx context.Context) []byte {
+// 	return clienttrace.TraceIDFromContext(ctx)
+// }
 
 // StartRegion provides better API, integrating both opentracing and runtime.trace facilities into one.
 // Recommended usage is
@@ -152,18 +145,18 @@ func StartRegion(ctx context.Context, regionType string) Region {
 		Span:   span1,
 	}
 	if IsEnabled(General) {
-		if tmp := GetSink(ctx); tmp != nil {
-			sink := tmp.(Sink)
+		if tmp := GetTraceBuf(ctx); tmp != nil {
+			traceBuf := tmp.(TraceBuf)
 			event := Event{
 				Category:  General,
 				Name:      regionType,
 				Phase:     PhaseBegin,
 				Timestamp: time.Now(),
-				TraceID:   ExtractTraceID(ctx),
+				// TraceID:   ExtractTraceID(ctx),
 			}
-			sink.Record(ctx, event)
+			traceBuf.Record(ctx, event)
 			ret.span.event = &event
-			ret.span.sink = sink
+			ret.span.traceBuf = traceBuf
 			ret.span.ctx = ctx
 		}
 	}
@@ -362,9 +355,9 @@ type Region struct {
 	*trace.Region
 	opentracing.Span
 	span struct {
-		event *Event
-		sink  Sink
-		ctx   context.Context
+		event    *Event
+		traceBuf TraceBuf
+		ctx      context.Context
 	}
 }
 
@@ -377,7 +370,7 @@ func (r Region) End() {
 	if r.span.event != nil {
 		r.span.event.Phase = PhaseEnd
 		r.span.event.Timestamp = time.Now()
-		r.span.sink.Record(r.span.ctx, *r.span.event)
+		r.span.traceBuf.Record(r.span.ctx, *r.span.event)
 	}
 }
 

@@ -33,7 +33,7 @@ func RegisterWithClientGo() {
 // handleClientGoTraceEvent is the function called by client-go to emit trace events.
 func handleClientGoTraceEvent(ctx context.Context, category trace.Category, name string, fields ...zap.Field) {
 	cat := mapCategory(category)
-	if !IsEnabled(cat) {
+	if !tracing.IsEnabled(cat) {
 		return
 	}
 	// Include original category value for unknown categories to aid debugging
@@ -46,7 +46,7 @@ func handleClientGoTraceEvent(ctx context.Context, category trace.Category, name
 // handleClientGoIsCategoryEnabled is the function called by client-go to check category enablement.
 func handleClientGoIsCategoryEnabled(category trace.Category) bool {
 	cat := mapCategory(category)
-	return IsEnabled(cat)
+	return tracing.IsEnabled(cat)
 }
 
 // handleTraceControlExtractor is called by client-go to extract trace control flags from context.
@@ -69,12 +69,8 @@ func handleTraceControlExtractor(ctx context.Context) trace.TraceControlFlags {
 	}
 
 	// Extract Trace object from context
-	sink := tracing.GetSink(ctx)
-	if sink == nil {
-		return flags
-	}
-	t, ok := sink.(*Trace)
-	if !ok {
+	traceBuf := getTraceBuf(ctx)
+	if traceBuf == nil {
 		return flags
 	}
 
@@ -83,9 +79,9 @@ func handleTraceControlExtractor(ctx context.Context) trace.TraceControlFlags {
 		return flags
 	}
 	// Read keep flag with RLock (thread-safe)
-	t.mu.RLock()
-	keep := fr.shouldKeep(t.bits)
-	t.mu.RUnlock()
+	traceBuf.mu.RLock()
+	keep := fr.shouldKeep(traceBuf.bits)
+	traceBuf.mu.RUnlock()
 
 	// Set immediate log flag based on keep
 	if keep {

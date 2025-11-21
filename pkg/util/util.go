@@ -31,7 +31,6 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/session/sessmgr"
-	"github.com/pingcap/tidb/pkg/util/traceevent"
 	"go.uber.org/atomic"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
@@ -323,7 +322,7 @@ func IsInCorrectIdentifierName(name string) bool {
 
 // GetRecoverError gets the error from recover.
 func GetRecoverError(r any) error {
-	traceevent.DumpFlightRecorderToLogger("GetRecoverError")
+	// traceevent.DumpFlightRecorderToLogger(ctx, "GetRecoverError")
 	if err, ok := r.(error); ok {
 		// Runtime panic also implements error interface.
 		// So do not forget to add stack info for it.

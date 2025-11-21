@@ -482,7 +482,7 @@ func buildCopTasks(bo *Backoffer, ranges *KeyRanges, opt *buildCopTaskOpt) ([]*c
 	start := time.Now()
 	ctx := bo.GetCtx()
 	defer tracing.StartRegion(ctx, "copr.buildCopTasks").End()
-	if traceevent.IsEnabled(traceevent.KvRequest) {
+	if tracing.IsEnabled(traceevent.KvRequest) {
 		traceevent.TraceEvent(ctx, traceevent.KvRequest, "copr.build_ranges",
 			zap.Uint64("connID", req.ConnID),
 			zap.String("connAlias", req.ConnAlias),

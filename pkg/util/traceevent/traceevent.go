@@ -19,30 +19,28 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
 	"github.com/pingcap/tidb/pkg/util/logutil"
 	"github.com/pingcap/tidb/pkg/util/tracing"
-	"github.com/tikv/client-go/v2/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-const (
-	// ModeOff disables all trace event recording (no flight recorder, no logging).
-	ModeOff = "off"
-	// ModeBase enables flight recorder only (default mode).
-	ModeBase = "base"
-	// ModeFull enables both flight recorder and log emission.
-	ModeFull = "full"
-)
+// const (
+// 	// ModeOff disables all trace event recording (no flight recorder, no logging).
+// 	ModeOff = "off"
+// 	// ModeBase enables flight recorder only (default mode).
+// 	ModeBase = "base"
+// 	// ModeFull enables both flight recorder and log emission.
+// 	ModeFull = "full"
+// )
 
 const (
 	// TxnLifecycle traces transaction begin/commit/rollback events.
@@ -71,36 +69,36 @@ const (
 // loggingEnabled controls whether the log sink emits logs.
 // lastDumpTime stores the Unix timestamp of the last flight recorder dump.
 var (
-	recorderEnabled atomic.Bool
-	loggingEnabled  atomic.Bool
-	lastDumpTime    atomic.Int64
+	// recorderEnabled atomic.Bool
+	// loggingEnabled  atomic.Bool
+	lastDumpTime atomic.Int64
 )
 
 // DefaultFlightRecorderCapacity controls the number of events retained in the in-memory recorder.
 // make this small so there won't be too many logs, until we have ability to filter out the ones we need.
-const DefaultFlightRecorderCapacity = 1024
+// const DefaultFlightRecorderCapacity = 1024
 
-// FlightRecorderCoolingOffPeriod is the minimum time between full flight recorder dumps.
+// flightRecorderCoolingOffPeriod is the minimum time between full flight recorder dumps.
 // During the cooling-off period, only a single summary log is emitted.
-const FlightRecorderCoolingOffPeriod = 10 * time.Second
+const flightRecorderCoolingOffPeriod = 10 * time.Second
 
 // eventSink stores the global sink used to record events.
-type sinkHolder struct {
-	sink Sink
-}
+// type sinkHolder struct {
+// 	sink Sink
+// }
 
-var eventSink atomic.Value // of type sinkHolder
+// var eventSink atomic.Value // of type sinkHolder
 
 // flightRecorder keeps a rolling buffer with recent events for post-mortem analysis.
-var flightRecorder = NewRingBufferSink(DefaultFlightRecorderCapacity)
+// var flightRecorder = NewRingBufferSink(DefaultFlightRecorderCapacity)
 
 // init sets up the default sink configuration.
 // Default mode is "base" (flight recorder enabled, logging disabled).
 func init() {
-	defaultSink := &LogSink{}
-	eventSink.Store(sinkHolder{sink: defaultSink})
-	recorderEnabled.Store(true) // base mode: recorder enabled
-	loggingEnabled.Store(false) // base mode: logging disabled
+	// defaultSink := &LogSink{}
+	// eventSink.Store(sinkHolder{sink: defaultSink})
+	// recorderEnabled.Store(true) // base mode: recorder enabled
+	// loggingEnabled.Store(false) // base mode: logging disabled
 
 	// Register TiDB's trace event handlers with client-go
 	RegisterWithClientGo()
@@ -108,73 +106,73 @@ func init() {
 
 // Enable enables trace events for the specified categories.
 // Multiple categories can be combined with bitwise OR.
-var Enable = tracing.Enable
+// var Enable = tracing.Enable
 
 // IsEnabled returns whether the specified category is enabled.
 var IsEnabled = tracing.IsEnabled
 
 // Disable disables trace events for the specified categories.
-var Disable = tracing.Disable
+// var Disable = tracing.Disable
 
 // SetCategories sets the enabled categories to exactly the specified value.
-var SetCategories = tracing.SetCategories
+// var SetCategories = tracing.SetCategories
 
 // GetEnabledCategories returns the currently enabled categories.
-var GetEnabledCategories = tracing.GetEnabledCategories
+// var GetEnabledCategories = tracing.GetEnabledCategories
 
 // NormalizeMode converts a user-supplied tracing mode string into its canonical representation.
-func NormalizeMode(mode string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case ModeOff, "0", "false":
-		return ModeOff, nil
-	case ModeBase:
-		return ModeBase, nil
-	case ModeFull:
-		return ModeFull, nil
-	default:
-		return "", fmt.Errorf("unsupported trace event mode %q, valid modes: off, base, full", mode)
-	}
-}
+// func NormalizeMode(mode string) (string, error) {
+// 	switch strings.ToLower(strings.TrimSpace(mode)) {
+// 	case ModeOff, "0", "false":
+// 		return ModeOff, nil
+// 	case ModeBase:
+// 		return ModeBase, nil
+// 	case ModeFull:
+// 		return ModeFull, nil
+// 	default:
+// 		return "", fmt.Errorf("unsupported trace event mode %q, valid modes: off, base, full", mode)
+// 	}
+// }
 
 // SetMode applies the requested tracing mode and returns the canonical value.
-func SetMode(mode string) (string, error) {
-	normalized, err := NormalizeMode(mode)
-	if err != nil {
-		return "", err
-	}
-	switch normalized {
-	case ModeOff:
-		recorderEnabled.Store(false)
-		loggingEnabled.Store(false)
-	case ModeBase:
-		recorderEnabled.Store(true)
-		loggingEnabled.Store(false)
-	case ModeFull:
-		recorderEnabled.Store(true)
-		loggingEnabled.Store(true)
-	default:
-		return "", fmt.Errorf("unknown trace event mode %q after normalization", normalized)
-	}
-	return normalized, nil
-}
+// func SetMode(mode string) (string, error) {
+// 	normalized, err := NormalizeMode(mode)
+// 	if err != nil {
+// 		return "", err
+// 	}
+// 	switch normalized {
+// 	case ModeOff:
+// 		recorderEnabled.Store(false)
+// 		loggingEnabled.Store(false)
+// 	case ModeBase:
+// 		recorderEnabled.Store(true)
+// 		loggingEnabled.Store(false)
+// 	case ModeFull:
+// 		recorderEnabled.Store(true)
+// 		loggingEnabled.Store(true)
+// 	default:
+// 		return "", fmt.Errorf("unknown trace event mode %q after normalization", normalized)
+// 	}
+// 	return normalized, nil
+// }
 
 // CurrentMode reports the canonical tracing mode string.
-func CurrentMode() string {
-	recEnabled := recorderEnabled.Load()
-	logEnabled := loggingEnabled.Load()
+// func CurrentMode() string {
+// 	recEnabled := recorderEnabled.Load()
+// 	logEnabled := loggingEnabled.Load()
 
-	if !recEnabled && !logEnabled {
-		return ModeOff
-	}
-	if recEnabled && logEnabled {
-		return ModeFull
-	}
-	if recEnabled && !logEnabled {
-		return ModeBase
-	}
-	// Shouldn't happen (logging without recorder), but return full for consistency
-	return ModeFull
-}
+// 	if !recEnabled && !logEnabled {
+// 		return ModeOff
+// 	}
+// 	if recEnabled && logEnabled {
+// 		return ModeFull
+// 	}
+// 	if recEnabled && !logEnabled {
+// 		return ModeBase
+// 	}
+// 	// Shouldn't happen (logging without recorder), but return full for consistency
+// 	return ModeFull
+// }
 
 // Event captures the raw information describing a trace event. This structure
 // is intentionally generic so that it can later be transformed into the Trace
@@ -184,30 +182,27 @@ type Event = tracing.Event
 // TraceCategory represents different trace event categories.
 type TraceCategory = tracing.TraceCategory
 
-// Sink records trace events.
-type Sink = tracing.Sink
+// // SetSink replaces the global sink. Passing nil restores the default sink.
+// func SetSink(s Sink) {
+// 	if s == nil {
+// 		s = &LogSink{}
+// 	}
+// 	eventSink.Store(sinkHolder{sink: s})
+// }
 
-// SetSink replaces the global sink. Passing nil restores the default sink.
-func SetSink(s Sink) {
-	if s == nil {
-		s = &LogSink{}
-	}
-	eventSink.Store(sinkHolder{sink: s})
-}
-
-// CurrentSink returns the sink currently used for trace events.
-func CurrentSink() Sink {
-	value := eventSink.Load()
-	if value == nil {
-		return nil
-	}
-	return value.(sinkHolder).sink
-}
+// // CurrentSink returns the sink currently used for trace events.
+// func CurrentSink() Sink {
+// 	value := eventSink.Load()
+// 	if value == nil {
+// 		return nil
+// 	}
+// 	return value.(sinkHolder).sink
+// }
 
 // FlightRecorder returns the always-on in-memory recorder.
-func FlightRecorder() *RingBufferSink {
-	return flightRecorder
-}
+// func FlightRecorder() *RingBufferSink {
+// 	return flightRecorder
+// }
 
 // TraceEvent records a trace event if the category is enabled.
 // The caller is responsible for applying any necessary redaction to the supplied fields.
@@ -218,7 +213,16 @@ func FlightRecorder() *RingBufferSink {
 //		zap.Uint64("regionID", regionID),
 //		zap.String("key", formatKey(key)))
 func TraceEvent(ctx context.Context, category TraceCategory, name string, fields ...zap.Field) {
-	if !IsEnabled(category) {
+	if !tracing.IsEnabled(category) {
+		return
+	}
+
+	if GetFlightRecorder() == nil {
+		return
+	}
+
+	traceBuf := getTraceBuf(ctx)
+	if traceBuf == nil {
 		return
 	}
 
@@ -229,39 +233,44 @@ func TraceEvent(ctx context.Context, category TraceCategory, name string, fields
 		Name:      name,
 		Phase:     tracing.PhaseInstant,
 		Timestamp: time.Now(),
-		TraceID:   TraceIDFromContext(ctx),
+		TraceID:   traceBuf.TraceID,
 		Fields:    copyFieldsWithCapacity(fields, 3),
 	}
+	traceBuf.Record(ctx, event)
 
-	// Record to flight recorder if enabled (base or full mode).
-	if recorderEnabled.Load() {
-		// TODO: clean up here
-		if recorder := FlightRecorder(); recorder != nil {
-			recorder.Record(ctx, event)
-		}
-		sink := tracing.GetSink(ctx)
-		if sink != nil {
-			sink.(Sink).Record(ctx, event)
-		}
-	}
+	// // Record to flight recorder if enabled (base or full mode).
+	// if recorderEnabled.Load() {
+	// 	// TODO: clean up here
+	// 	if recorder := FlightRecorder(); recorder != nil {
+	// 		recorder.Record(ctx, event)
+	// 	}
+	// 	sink := tracing.GetSink(ctx)
+	// 	if sink != nil {
+	// 		sink.(Sink).Record(ctx, event)
+	// 	}
+	// }
 
-	// Record to log sink if logging is enabled (full mode).
-	if sink := CurrentSink(); sink != nil {
-		sink.Record(ctx, event)
-	}
-}
-
-// TraceIDFromContext returns the trace identifier from ctx if present.
-// It delegates to client-go's TraceIDFromContext implementation.
-func TraceIDFromContext(ctx context.Context) []byte {
-	return trace.TraceIDFromContext(ctx)
+	// // Record to log sink if logging is enabled (full mode).
+	// if sink := CurrentSink(); sink != nil {
+	// 	sink.Record(ctx, event)
+	// }
 }
 
 // ContextWithTraceID returns a new context with the given trace identifier.
 // It delegates to client-go's ContextWithTraceID implementation.
-func ContextWithTraceID(ctx context.Context, traceID []byte) context.Context {
-	return trace.ContextWithTraceID(ctx, traceID)
-}
+// func ContextWithTraceID(ctx context.Context, traceID []byte) context.Context {
+// 	return trace.ContextWithTraceID(ctx, traceID)
+// }
+
+// TraceIDFromContext returns the trace identifier from ctx if present.
+// It delegates to client-go's TraceIDFromContext implementation.
+// func TraceIDFromContext(ctx context.Context) []byte {
+// 	traceBuf := getTraceBuf(ctx)
+// 	if traceBuf == nil {
+// 		return nil
+// 	}
+// 	return traceBuf.traceID
+// }
 
 // GenerateTraceID creates a trace ID from transaction start timestamp and statement count.
 // The trace ID is 20 bytes: [start_ts (8 bytes)][stmt_count (8 bytes)][random (4 bytes)] in big-endian format.
@@ -272,34 +281,29 @@ func GenerateTraceID(ctx context.Context, startTS uint64, stmtCount uint64) []by
 	traceID := make([]byte, 20)
 	binary.BigEndian.PutUint64(traceID[0:8], startTS)
 	binary.BigEndian.PutUint64(traceID[8:16], stmtCount)
-	var rand32 uint32
-	if sink := tracing.GetSink(ctx); sink != nil {
-		if t, ok := sink.(*Trace); ok {
-			t.mu.Lock()
-			rand32 = t.rand32
-			t.mu.Unlock()
-		}
+	binary.BigEndian.PutUint32(traceID[16:20], rand.Uint32())
+	if traceBuf := getTraceBuf(ctx); traceBuf != nil {
+		traceBuf.mu.Lock()
+		// rand32 = t.rand32
+		traceBuf.TraceID = traceID
+		traceBuf.mu.Unlock()
 	}
-	if rand32 == 0 {
-		rand32 = rand.Uint32()
-	}
-	binary.BigEndian.PutUint32(traceID[16:20], rand32)
 	return traceID
 }
 
 // LogSink serializes trace events to the global zap logger. The output structure
 // stays simple for now, but the Event data contains enough information to build
 // a Trace Event Format record when the format is finalized.
-type LogSink struct{}
+// type LogSink struct{}
 
-// Record implements the Sink interface.
-func (*LogSink) Record(ctx context.Context, event Event) {
-	if !loggingEnabled.Load() {
-		return
-	}
+// // Record implements the Sink interface.
+// func (*LogSink) Record(ctx context.Context, event Event) {
+// 	if !loggingEnabled.Load() {
+// 		return
+// 	}
 
-	logEvent(ctx, event)
-}
+// 	logEvent(ctx, event)
+// }
 
 func logEvent(ctx context.Context, event Event) {
 	// Append to reserved capacity without allocation.
@@ -372,102 +376,102 @@ func copyFields(fields []zap.Field) []zap.Field {
 	return out
 }
 
-// MultiSink distributes events to multiple sinks.
-type MultiSink struct {
-	sinks []Sink
-}
+// // MultiSink distributes events to multiple sinks.
+// type MultiSink struct {
+// 	sinks []Sink
+// }
 
-// NewMultiSink constructs a MultiSink. Nil sinks are ignored.
-func NewMultiSink(sinks ...Sink) *MultiSink {
-	filtered := make([]Sink, 0, len(sinks))
-	for _, s := range sinks {
-		if s != nil {
-			filtered = append(filtered, s)
-		}
-	}
-	return &MultiSink{sinks: filtered}
-}
+// // NewMultiSink constructs a MultiSink. Nil sinks are ignored.
+// func NewMultiSink(sinks ...Sink) *MultiSink {
+// 	filtered := make([]Sink, 0, len(sinks))
+// 	for _, s := range sinks {
+// 		if s != nil {
+// 			filtered = append(filtered, s)
+// 		}
+// 	}
+// 	return &MultiSink{sinks: filtered}
+// }
 
-// Record implements the Sink interface.
-func (s *MultiSink) Record(ctx context.Context, event Event) {
-	for _, sink := range s.sinks {
-		sink.Record(ctx, event)
-	}
-}
+// // Record implements the Sink interface.
+// func (s *MultiSink) Record(ctx context.Context, event Event) {
+// 	for _, sink := range s.sinks {
+// 		sink.Record(ctx, event)
+// 	}
+// }
 
-// RingBufferSink buffers the most recent events in a ring.
-type RingBufferSink struct {
-	mu   sync.Mutex
-	buf  []Event
-	next int
-	cap  int
-}
+// // RingBufferSink buffers the most recent events in a ring.
+// type RingBufferSink struct {
+// 	mu   sync.Mutex
+// 	buf  []Event
+// 	next int
+// 	cap  int
+// }
 
-// NewRingBufferSink creates a ring buffer with the specified capacity.
-func NewRingBufferSink(capacity int) *RingBufferSink {
-	if capacity <= 0 {
-		capacity = 1
-	}
-	return &RingBufferSink{
-		buf: make([]Event, 0, capacity),
-		cap: capacity,
-	}
-}
+// // NewRingBufferSink creates a ring buffer with the specified capacity.
+// func NewRingBufferSink(capacity int) *RingBufferSink {
+// 	if capacity <= 0 {
+// 		capacity = 1
+// 	}
+// 	return &RingBufferSink{
+// 		buf: make([]Event, 0, capacity),
+// 		cap: capacity,
+// 	}
+// }
 
-// Record implements the Sink interface.
-// Assumes event.Fields is already an independent copy.
-func (r *RingBufferSink) Record(_ context.Context, event Event) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// // Record implements the Sink interface.
+// // Assumes event.Fields is already an independent copy.
+// func (r *RingBufferSink) Record(_ context.Context, event Event) {
+// 	r.mu.Lock()
+// 	defer r.mu.Unlock()
 
-	if len(r.buf) < r.cap {
-		r.buf = append(r.buf, event)
-		if len(r.buf) == r.cap {
-			r.next = 0
-		}
-		return
-	}
+// 	if len(r.buf) < r.cap {
+// 		r.buf = append(r.buf, event)
+// 		if len(r.buf) == r.cap {
+// 			r.next = 0
+// 		}
+// 		return
+// 	}
 
-	r.buf[r.next] = event
-	r.next = (r.next + 1) % r.cap
-}
+// 	r.buf[r.next] = event
+// 	r.next = (r.next + 1) % r.cap
+// }
 
-// DiscardOrFlush clears all buffered events.
-func (r *RingBufferSink) DiscardOrFlush() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.buf = r.buf[:0]
-	r.next = 0
-}
+// // DiscardOrFlush clears all buffered events.
+// func (r *RingBufferSink) DiscardOrFlush() {
+// 	r.mu.Lock()
+// 	defer r.mu.Unlock()
+// 	r.buf = r.buf[:0]
+// 	r.next = 0
+// }
 
-// Snapshot returns buffered events ordered from oldest to newest.
-func (r *RingBufferSink) Snapshot() []Event {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// // Snapshot returns buffered events ordered from oldest to newest.
+// func (r *RingBufferSink) Snapshot() []Event {
+// 	r.mu.Lock()
+// 	defer r.mu.Unlock()
 
-	if len(r.buf) == 0 {
-		return nil
-	}
+// 	if len(r.buf) == 0 {
+// 		return nil
+// 	}
 
-	result := make([]Event, len(r.buf))
-	if len(r.buf) < r.cap {
-		for i := range len(r.buf) {
-			result[i] = cloneEvent(r.buf[i])
-		}
-		return result
-	}
+// 	result := make([]Event, len(r.buf))
+// 	if len(r.buf) < r.cap {
+// 		for i := range len(r.buf) {
+// 			result[i] = cloneEvent(r.buf[i])
+// 		}
+// 		return result
+// 	}
 
-	idx := 0
-	for i := r.next; i < len(r.buf); i++ {
-		result[idx] = cloneEvent(r.buf[i])
-		idx++
-	}
-	for i := range r.next {
-		result[idx] = cloneEvent(r.buf[i])
-		idx++
-	}
-	return result
-}
+// 	idx := 0
+// 	for i := r.next; i < len(r.buf); i++ {
+// 		result[idx] = cloneEvent(r.buf[i])
+// 		idx++
+// 	}
+// 	for i := range r.next {
+// 		result[idx] = cloneEvent(r.buf[i])
+// 		idx++
+// 	}
+// 	return result
+// }
 
 func cloneEvent(ev Event) Event {
 	c := ev
@@ -478,19 +482,28 @@ func cloneEvent(ev Event) Event {
 // DumpFlightRecorderToLogger emits the buffered events to the background logger.
 // Intended for crash diagnostics (e.g. panic handling).
 // If called within the cooling-off period, only a summary log is emitted.
-func DumpFlightRecorderToLogger(reason string) {
-	events := FlightRecorder().Snapshot()
+func DumpFlightRecorderToLogger(ctx context.Context, reason string) {
+	logger := logutil.BgLogger()
+	traceBuf := getTraceBuf(ctx)
+	if traceBuf == nil {
+		logger.Warn("DumpFlightRecorderToLogger fail, traceBuf is nil, this should not happen")
+		return
+	}
+
+	// events := FlightRecorder().Snapshot()
+	traceBuf.mu.Lock()
+	events := slices.Clone(traceBuf.events)
+	traceBuf.mu.Unlock()
 	if len(events) == 0 {
 		return
 	}
 
-	logger := logutil.BgLogger()
 	now := time.Now().Unix()
 	last := lastDumpTime.Load()
 	elapsed := time.Duration(now-last) * time.Second
 
 	// Check if we're in the cooling-off period
-	if last > 0 && elapsed < FlightRecorderCoolingOffPeriod {
+	if last > 0 && elapsed < flightRecorderCoolingOffPeriod {
 		logger.Info("flight recorder dump suppressed (cooling off)",
 			zap.String("reason", reason),
 			zap.Int("event_count", len(events)),
