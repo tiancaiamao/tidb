@@ -129,6 +129,12 @@ func WithTraceBuf(ctx context.Context, val TraceBuf) context.Context {
 // func extractTraceID(ctx context.Context) []byte {
 // 	return clienttrace.TraceIDFromContext(ctx)
 // }
+//
+// ExtractTraceID returns the trace identifier from ctx if present.
+// It delegates to client-go's TraceIDFromContext implementation.
+// func ExtractTraceID(ctx context.Context) []byte {
+// 	return clienttrace.TraceIDFromContext(ctx)
+// }
 
 // StartRegion provides better API, integrating both opentracing and runtime.trace facilities into one.
 // Recommended usage is
@@ -244,13 +250,16 @@ const (
 	// TiKVReadDetails maps to client-go's FlagTiKVCategoryReadDetails.
 	// Controls detailed read operation tracing in TiKV.
 	TiKVReadDetails
+	// RegionCache traces region cache events.
+	RegionCache
+
 	traceCategorySentinel
 )
 
 // AllCategories can be used to enable every known trace category.
 const AllCategories = traceCategorySentinel - 1
 
-const defaultEnabledCategories = AllCategories &^ (TiKVWriteDetails | TiKVReadDetails)
+const defaultEnabledCategories = 0
 
 func init() {
 	enabledCategories.Store(uint64(defaultEnabledCategories))
@@ -300,6 +309,8 @@ func getCategoryName(category TraceCategory) string {
 		return "tikv_write_details"
 	case TiKVReadDetails:
 		return "tikv_read_details"
+	case RegionCache:
+		return "region_cache"
 	default:
 		return "unknown(" + strconv.FormatUint(uint64(category), 10) + ")"
 	}
