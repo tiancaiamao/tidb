@@ -63,10 +63,10 @@ var globalHTTPFlightRecorder atomic.Pointer[HTTPFlightRecorder]
 // TODO: rename HTTPFlightRecorder to FlightRecorder as it may sink to log now instead of just HTTP
 // TODO: remove the old global flight recorder, clean up code.
 type HTTPFlightRecorder struct {
-	ch                   chan<- []Event
-	oldEnabledCategories TraceCategory
-	counter              atomic.Int64 // used when dump trigger config is sampling
-	Config               *FlightRecorderConfig
+	ch                chan<- []Event
+	enabledCategories TraceCategory
+	counter           atomic.Int64 // used when dump trigger config is sampling
+	Config            *FlightRecorderConfig
 	compiledDumpTriggerConfig
 }
 
@@ -473,7 +473,7 @@ func newHTTPFlightRecorder(config *FlightRecorderConfig) (*HTTPFlightRecorder, e
 
 	categories := parseCategories(config.EnabledCategories)
 	ret := &HTTPFlightRecorder{
-		oldEnabledCategories:      tracing.GetEnabledCategories(),
+		enabledCategories:         categories,
 		Config:                    config,
 		compiledDumpTriggerConfig: compiled,
 	}
@@ -481,7 +481,7 @@ func newHTTPFlightRecorder(config *FlightRecorderConfig) (*HTTPFlightRecorder, e
 		zap.Stringer("category", categories),
 		zap.Any("mapping", compiled.nameMapping),
 		zap.Uint64s("truthTable", ret.truthTable))
-	tracing.SetCategories(categories)
+
 	globalHTTPFlightRecorder.Store(ret)
 	return ret, nil
 }
@@ -508,8 +508,7 @@ func GetFlightRecorder() *HTTPFlightRecorder {
 }
 
 // Close closes the HTTP flight recorder.
-func (r *HTTPFlightRecorder) Close() {
-	tracing.SetCategories(r.oldEnabledCategories)
+func (*HTTPFlightRecorder) Close() {
 	globalHTTPFlightRecorder.Store(nil)
 }
 

@@ -3485,16 +3485,16 @@ func TestIssue57531(t *testing.T) {
 			netConn.Close()
 		})
 
-		time.Sleep(10 * time.Millisecond)
-
 		// the `select sleep(300)` is killed
 		ts.RunTests(t, nil, func(dbt *testkit.DBTestKit) {
-			rsCnt = 0
-			rs := dbt.MustQuery("show processlist")
-			for rs.Next() {
-				rsCnt++
-			}
-			require.Equal(t, rsCnt, 1)
+			require.Eventually(t, func() bool {
+				rs := dbt.MustQuery("show processlist")
+				cnt := 0
+				for rs.Next() {
+					cnt++
+				}
+				return cnt == 1
+			}, 5*time.Second, 50*time.Millisecond)
 		})
 	}
 }
@@ -3813,5 +3813,38 @@ func TestAuditPluginRetrying(t *testing.T) {
 
 		testResults = testResults[:0]
 		runExplicitTransactionRetry(db, true)
+	})
+}
+
+func TestIssue62673(t *testing.T) {
+	ts := servertestkit.CreateTidbTestSuite(t)
+	ts.RunTests(t, func(c *mysql.Config) {
+		c.AllowAllFiles = true
+	}, func(dbt *testkit.DBTestKit) {
+		ctx := context.Background()
+
+		// Generate a big local file
+		filePath := filepath.Join(t.TempDir(), "big_file.txt")
+		mysql.RegisterLocalFile(filePath)
+		for i := range 1000 {
+			err := os.WriteFile(filePath, fmt.Appendf(nil, "%d\n", i), os.ModePerm)
+			require.NoError(t, err)
+		}
+
+		conn, err := dbt.GetDB().Conn(ctx)
+		require.NoError(t, err)
+
+		testserverclient.MustExec(ctx, t, conn, "create table t (a int)")
+
+		testfailpoint.Enable(t, "github.com/pingcap/tidb/pkg/executor/CommitWorkError", "return(1)")
+
+		testStart := time.Now()
+		testDuration := time.Second
+		for time.Since(testStart) < testDuration {
+			_, err = conn.ExecContext(ctx, fmt.Sprintf("LOAD DATA LOCAL INFILE '%s' INTO TABLE t", filePath))
+			require.Error(t, err)
+
+			testserverclient.MustQuery(ctx, t, ts.TestServerClient, conn, "SELECT COUNT(*) FROM t")
+		}
 	})
 }
